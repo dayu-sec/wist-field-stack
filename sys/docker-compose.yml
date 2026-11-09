@@ -164,6 +164,8 @@ services:
       ATLAS_INGEST_HOST_PORT: ${ATLAS_INGEST_HOST_PORT}
       # 自注册：`cred.toml` 里这几个都是 `${FIELD_API_…}`，与上面同一机制（BFF 启动时
       # 用「密钥文件 + 进程环境」展开）。不收变量就只能改文件，而现场不该为此改文件。
+      # audience 也是部署事实（= cred 侧 peer 名），同样从这里展开。
+      FIELD_API_AUDIENCE: ${FIELD_API_AUDIENCE}
       FIELD_API_ADVERTISE_HOST: ${FIELD_API_ADVERTISE_HOST}
       FIELD_API_CRED_URL: ${FIELD_API_CRED_URL}
       FIELD_API_CRED_CA_FILE: ${FIELD_API_CRED_CA_FILE}

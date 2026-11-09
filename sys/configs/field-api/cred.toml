@@ -15,7 +15,10 @@
 #   FIELD_API_CRED_INSECURE_TLS  明确跳过入口证书校验（与 ca_file 互斥）
 
 [verify]
-audience = "wist-field-api"
+# 认证系统名：凭据的 `audience` 不等于它就拒（401 `audience_mismatch`）。
+# 它是**部署事实**（必须与 cred 侧那个 peer 同名），所以走变量，站点在 values/ 里设：
+#   FIELD_API_AUDIENCE（产品默认 `wist-field-api`）。
+audience = "${FIELD_API_AUDIENCE}"
 allowed_issuers = ["wist-cred"]
 roles = ["read"]
 # 授权记录要不要**强制验签**（Ed25519）：mTLS 已经认了 cred 的身份，这一层防的是

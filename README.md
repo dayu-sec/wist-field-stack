@@ -114,6 +114,8 @@ TLS 在 `web` 容器里终结（80 只给健康检查、不发布到宿主）。
 1. 先把两个部署事实写进 `values/wist-field-stack/sys_value.yml`（或 `.env`）：
 
    ```yaml
+   # 认证系统名 = cred 侧那个 peer 的名字；凭据的 audience 必须等于它。
+   FIELD_API_AUDIENCE: wist-field-api
    # 收数地址的主机名 = 证书 SAN = cred 拨号的地址。**不填就启动失败**（有意如此）。
    FIELD_API_ADVERTISE_HOST: field.dev.wist.lab
    # cred 的注册入口（留空 = 初始化页上填）。
@@ -124,7 +126,8 @@ TLS 在 `web` 容器里终结（80 只给健康检查、不发布到宿主）。
    FIELD_API_CRED_CA_FILE: /cred/cred-entry-ca.pem
    ```
 
-2. 在 cred 页面建「认证系统」**`wist-field-api`**（角色至少 `read`），签发一张**接入券**（`wot_…`）；
+2. 在 cred 页面建「认证系统」（名字要等于栈变量 `FIELD_API_AUDIENCE`，产品默认 `wist-field-api`；
+   角色至少 `read`），签发一张**接入券**（`wot_…`）；
    同时拿到 **setup code**：`bash sys/scripts/init-stack.sh` 会幂等生成它并写进
    `.wist/sec-value.yml` → `SEC_FIELD_API_PEER_SETUP_CODE`（0640；没生成过就读不到，
    现场也不要自己编一个弱口令）。
@@ -150,7 +153,7 @@ TLS 在 `web` 容器里终结（80 只给健康检查、不发布到宿主）。
 | `cred_unreachable` + `certificate` | 入口自签且没配信任锚：设 `FIELD_API_CRED_CA_FILE`，或明确开 `FIELD_API_CRED_INSECURE_TLS` 后再核对指纹 |
 | `publish_endpoint_invalid` | `FIELD_API_ADVERTISE_HOST` 是空（地址渲染成 `https://:18802/…`）；同时 field-api 启动期就会拒 |
 | `host_mismatch` | 页面上手填的证书主机名与 `[publish].endpoint` 的主机名不一致（cred 按后者拨号） |
-| `bundle_rejected` / `enroll_rejected` | cred 拒绝：券已用/过期，或认证系统名字不是 `wist-field-api` |
+| `bundle_rejected` / `enroll_rejected` | cred 拒绝：券已用/过期，或认证系统名字与 `FIELD_API_AUDIENCE` 不一致 |
 
 > 想重来：删掉 `identity/field-api/cred/{server.crt,server.key,client-ca.pem}` 后重启。
 
@@ -227,6 +230,7 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 | `PG_BIND_IP` / `EVIDENCE_PG_HOST_PORT` / `ATLAS_PG_HOST_PORT` | `127.0.0.1:55434/55435` | 两个 PG（仅供排查） |
 | `CREDENTIALS_BIND_IP` / `CREDENTIALS_HOST_PORT` | `0.0.0.0:18802` | cred 推送摘要 / 心跳的 mTLS 端口 |
 | `FIELD_API_ADVERTISE_HOST` | 空（**必填**） | 收数地址的主机名 = 证书 SAN = cred 拨号地址；不填 field-api 启动期就拒 |
+| `FIELD_API_AUDIENCE` | `wist-field-api` | 认证系统名（= cred 侧那个 peer 的名字）；凭据的 `audience` 不等于它就 401 `audience_mismatch` |
 | `FIELD_API_CRED_URL` | 空 | cred 注册入口；留空则由初始化页填 |
 | `FIELD_API_CRED_CA_FILE` | 空 | 入口自签时的信任锚（容器内路径，如 `/cred/cred-entry-ca.pem`） |
 | `FIELD_API_CRED_INSECURE_TLS` | `false` | 明确跳过入口证书校验（与 `CA_FILE` 互斥；开了就必须核对指纹） |

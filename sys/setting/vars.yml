@@ -11,7 +11,7 @@ system:
     value: ghcr.io/dayu-sec
 
   - name: FIELD_API_IMAGE_TAG
-    value: v0.6.5-alpha
+    value: v0.6.6-alpha
   - name: FIELD_WEB_IMAGE_TAG
     value: v0.2.5-alpha
   - name: EVIDENCE_IMAGE_TAG
@@ -57,8 +57,14 @@ system:
   - name: CREDENTIALS_HOST_PORT
     value: 18802
 
-  # ── 自注册（首次启动时向 cred 登记自己）────────────────────────────
+  # ── 身份与自注册 ──────────────────────────────────────────────────
   #
+  # 认证系统名（= cred 侧那个 peer 的名字）：凭据的 `audience` 不等于它就拒。
+  # 每个站点 / 认证系统可能不同（例：`local-field-alpha`）——现场在
+  # `values/<系统>/sys_value.yml` 覆盖，不要改 `sys/configs/field-api/cred.toml`。
+  - name: FIELD_API_AUDIENCE
+    value: wist-field-api
+
   # cred 的注册入口。留空 = 初始化页上让操作者填；预置后页面只收券。
   # 例：`https://cred.dev.wist.lab:4444`
   - name: FIELD_API_CRED_URL

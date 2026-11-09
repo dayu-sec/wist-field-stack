@@ -2,7 +2,7 @@ system:
 - name: FIELD_REGISTRY
   value: ghcr.io/dayu-sec
 - name: FIELD_API_IMAGE_TAG
-  value: v0.6.5-alpha
+  value: v0.6.6-alpha
 - name: FIELD_WEB_IMAGE_TAG
   value: v0.2.5-alpha
 - name: EVIDENCE_IMAGE_TAG
@@ -31,6 +31,8 @@ system:
   value: 127.0.0.1
 - name: CREDENTIALS_HOST_PORT
   value: 18802
+- name: FIELD_API_AUDIENCE
+  value: wist-field-api
 - name: FIELD_API_CRED_URL
   value: ''
 - name: FIELD_API_ADVERTISE_HOST
