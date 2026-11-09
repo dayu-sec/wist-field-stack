@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 0.2.5-alpha · 2026-11-09
+
+- **「接入」页展示的写端点不再硬编码 `127.0.0.1`**：新增栈变量
+  `EVIDENCE_SINK_PUBLIC_HOST` / `ATLAS_INGEST_PUBLIC_HOST`（产品默认 `127.0.0.1`，与原行为一致）。
+  `field-api.toml` 的 `[integration].sink_url` / `[atlas].sink_url` 改为
+  `http://${*_PUBLIC_HOST}:${*_HOST_PORT}` 渲染 —— 不同部署实例（各站点 / 各客户的域名或
+  内网地址）在 `values/<系统>/sys_value.yml` 里填一次就行，不用再改配置文件。
+- 端口仍只有一个来源：证据写端口 `EVIDENCE_SINK_HOST_PORT`、资产写端口 `ATLAS_INGEST_HOST_PORT`。
+- **已有站点要注意**：现场 `configs/field-api/field-api.toml` 是 `init-stack.sh` 从 `sys/configs/`
+  复制出来的现场态，升级**不会**覆盖它。想用新变量就同步这份种子
+  （`cp sys/configs/field-api/field-api.toml configs/field-api/field-api.toml`，
+  或 `FORCE_CONFIGS=1 bash sys/scripts/init-stack.sh`），然后 `gops sys localize && gops run start`。
+  没同步的旧配置照样能跑（继续用硬编码地址），不受影响。
+- 组件版本不变：`field-api v0.6.5-alpha` / `field-web v0.2.5-alpha` / `evidence v0.1.15-alpha`。
+
 ## 0.2.4-alpha · 2026-11-09
 
 - **发布对齐 `wist-cred-stack`**：打 tag 后自动产部署包（`wist-field-stack-<tag>.tar.gz`）、
