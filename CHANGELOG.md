@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 0.2.4 · 2026-11-09
+## 0.2.4-alpha · 2026-11-09
 
 - **发布对齐 `wist-cred-stack`**：打 tag 后自动产部署包（`wist-field-stack-<tag>.tar.gz`）、
   建 GitHub Release，并把同一个包同步到 COS（`<prefix>/<tag>/` 与 `<prefix>/latest/`，

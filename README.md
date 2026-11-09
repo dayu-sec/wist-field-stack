@@ -69,7 +69,11 @@ gops run start
 
 ## 发布
 
-打 `vX.Y.Z` tag 会触发 `.github/workflows/release.yml`（与 `wist-cred-stack` 同一套）：
+本栈是**制品**，走 `alpha → beta → main` 三条通道：**当前开发与发布在 `alpha` 分支**，
+tag 形如 `vX.Y.Z-alpha`；成熟后再推进到 `beta`（`-beta`）与 `main`（无后缀）。
+
+在 `alpha` 分支打 `vX.Y.Z-alpha` tag 会触发 `.github/workflows/release.yml`
+（与 `wist-cred-stack` 同一套）：
 
 1. **verify**：用入库的 `.env.example` 渲染 compose + `./dev/lint.sh` + `dev/tests/*.test.sh`；
 2. **package**：`git archive` 出 `wist-field-stack-<tag>.tar.gz`（只含 git 跟踪内容）；
