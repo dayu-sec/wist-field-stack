@@ -1,19 +1,25 @@
 # CHANGELOG
 
-## 未发布
+## 0.2.3 · 2026-11-09
 
+- **发布火车**：`field-api v0.6.5-alpha` + `field-web v0.2.5-alpha` + `evidence v0.1.15-alpha`。
+- **证据按调查命令 id（`cmd_id`）读与筛**：详情 / 预签名 / 正文代理读的路径 key 接受
+  `cmd_id`（发起调查的人手里只有这个）；列表支持 `?cmd_id=`，页面查询栏以它为主位，
+  列表新增「命令 id」列。
+- **「接口可用性」页拆成三个 tab**（探活结果 / 证据读取 API / 资产拓扑 API）：
+  页面不再维护第二份接口清单；证据读接口清单由 BFF 自己输出的 OpenAPI 提供。
+- **资产拓扑画布组件化**：删除 `atlas-web` 容器与 nginx 的 `/atlas/` 反代，数据统一走
+  BFF 的 `/api/atlas/*`；画布升到 `wist-atlas-graph 0.5.1`（网络归属过滤、选中 2 秒快捷操作等）。
 - **atlas 读接口要令牌**：新增栈变量 `ATLAS_API_TOKEN`（产品默认是**空串** —— atlas 拿到空串
   会拒绝启动，读接口不允许“谁都能读”）。现场在 `values/<系统>/sys_value.yml` 给一个随机值；
   compose 同时以 `WIST_ATLAS_TOKEN` 传给 atlas、以 `SEC_ATLAS_API_TOKEN` 传给 field-api
   （对应的 `[atlas] auth_token`）。
 - **只保护读接口**：`/healthz`、`/internal/atlas`（数据面写入，已只绑环回）、
   `/api/openapi.json`、`/api/docs` 仍然不要令牌。
-- **移除 `atlas-web` 服务**：画布自 `wist-atlas-graph@0.4` 起是 field-web 的一个 React 组件，
-  不再有独立容器，也不再需要 `ATLAS_WEB_IMAGE_TAG` 与 nginx 的 `location /atlas/`、
-  `location /atlas/api/`（数据走 BFF 的 `/api/atlas/*`）。栈从 7 个业务容器降到 6 个。
 - **已有站点要注意**：现场 `configs/` 是 `init-stack.sh` 从 `sys/configs/` 副本出来的
   （gitignore 的现场态）。升级后要把 `[atlas] auth_token = "${SEC_ATLAS_API_TOKEN}"` 同步进
   现场的 `configs/field-api/field-api.toml`，否则 BFF 手里没有令牌，atlas 会回 401。
+- **开发**：`dev/dev-image.sh` 支持 `--evidence`，证据服务的改动也能用本地镜像验证。
 
 ## 0.2.2 · 2026-11-07
 

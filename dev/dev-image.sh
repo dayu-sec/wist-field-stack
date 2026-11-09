@@ -2,11 +2,13 @@
 # 把组件源码交叉编译成 Linux 二进制，打成「本地开发镜像」，并挂到本栈上。
 #
 #   ./dev/dev-image.sh --svc api   --api   <wist-field-api 仓>    [选项]
+#   ./dev/dev-image.sh --svc evidence --evidence <wist-evidence 仓> [选项]
 #   ./dev/dev-image.sh --svc atlas --atlas <wist-atlas 仓>        [选项]
 #
 # 选项：
-#   --svc <api|atlas>  要构建哪个（默认 api）
+#   --svc <api|evidence|atlas>  要构建哪个（默认 api）
 #   --api <dir>        wist-field-api 源码仓（--svc api）
+#   --evidence <dir>   wist-evidence 源码仓（--svc evidence）
 #   --atlas <dir>      wist-atlas 源码仓（--svc atlas）
 #   --stack <dir>      站点栈目录（默认：本仓根目录）
 #   --tag <tag>        镜像 tag（默认 v<version.txt>-local）
@@ -20,8 +22,8 @@
 # 为什么 tag 一定是 vX.Y.Z-local：这个镜像不在任何 registry 里。带 -local 后缀，
 # 既不会让 docker compose pull 误以为它存在，也不会被误当成某次发布产物。
 #
-# 两个组件的打包方式不同（都只换二进制，运行时形状保持发布态）：
-#   field-api  用仓库自带的 docker/Dockerfile（base = ubuntu:24.04）；
+# 三个组件的打包方式不同（都只换二进制，运行时形状保持发布态）：
+#   field-api / evidence  用仓库自带的 docker/Dockerfile（base = ubuntu:24.04）；
 #   atlas      仓库 Dockerfile 会在容器里编译（慢），本地改成「从已发布镜像派生」：
 #              FROM <ATLAS_REGISTRY>/wist-atlas:<当前 tag> + 只覆盖 /usr/local/bin/wist-atlas。
 set -euo pipefail
@@ -34,6 +36,7 @@ note() { echo "  $*"; }
 
 SVC="api"
 FIELD_API_SRC=""
+EVIDENCE_SRC=""
 ATLAS_SRC=""
 WEB_SRC=""
 STACK=""
@@ -45,13 +48,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --svc) SVC="${2:-}"; shift 2 ;;
     --api) FIELD_API_SRC="${2:-}"; SVC="api"; shift 2 ;;
+    --evidence) EVIDENCE_SRC="${2:-}"; SVC="evidence"; shift 2 ;;
     --atlas) ATLAS_SRC="${2:-}"; SVC="atlas"; shift 2 ;;
     --web) WEB_SRC="${2:-}"; SVC="web"; shift 2 ;;
     --stack) STACK="${2:-}"; shift 2 ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --release) PROFILE="release"; shift ;;
     --no-recreate) RECREATE=0; shift ;;
-    -h | --help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,28p' "$0"; exit 0 ;;
     *) die "未知参数：$1（--help 看用法）" ;;
   esac
 done
@@ -68,6 +72,18 @@ case "${SVC}" in
     TAG_VAR="FIELD_API_IMAGE_TAG"
     COMPOSE_SERVICE="field-api"
     CONTAINER="wist-field-stack-field-api"
+    ;;
+  evidence)
+    SRC="${EVIDENCE_SRC}"
+    [[ -n "${SRC}" ]] || die "缺少 --evidence <wist-evidence 仓>"
+    [[ -f "${SRC}/Cargo.toml" ]] || die "--evidence 不是 wist-evidence 仓：${SRC}"
+    CARGO_ARGS=()
+    BIN="wist-evidence"
+    IMAGE_NAME="wist-evidence"
+    REGISTRY_VAR="FIELD_REGISTRY"
+    TAG_VAR="EVIDENCE_IMAGE_TAG"
+    COMPOSE_SERVICE="evidence"
+    CONTAINER="wist-field-stack-evidence"
     ;;
   web)
     SRC="${WEB_SRC}"
@@ -95,8 +111,7 @@ case "${SVC}" in
     CONTAINER="wist-field-stack-atlas"
     ;;
   *)
-    die "--svc 只能是 api|atlas|web，收到 ${SVC}"
-    ;;
+    die "--svc 只能是 api|evidence|atlas|web，收到 ${SVC}" ;;
 esac
 
 # 后面要 cd 进栈目录，先把两个路径都换成绝对路径（否则相对路径会拼成 xx/xx/…）。

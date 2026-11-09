@@ -11,11 +11,11 @@ system:
     value: ghcr.io/dayu-sec
 
   - name: FIELD_API_IMAGE_TAG
-    value: v0.6.4-alpha
+    value: v0.6.5-alpha
   - name: FIELD_WEB_IMAGE_TAG
-    value: v0.2.4-alpha
+    value: v0.2.5-alpha
   - name: EVIDENCE_IMAGE_TAG
-    value: v0.1.14-alpha
+    value: v0.1.15-alpha
 
   - name: ATLAS_REGISTRY
     value: ghcr.io/dayu-sec
