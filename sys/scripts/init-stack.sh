@@ -12,6 +12,36 @@ STACK_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 note() { echo "  $*"; }
 
+# 现场值从栈根 `.env`（`gops sys localize` 生成）读进来；显式给出的环境变量优先。
+#
+# 为什么必须读：本脚本按 `WEB_DOMAIN` 签 web 叶证书，而 `gops run start` **不会**
+# 把 `.env` 导出给这个脚本；手工跑时不读它就会回落 `localhost`，签出一张名字
+# 与站点域名不符的证书（症状：浏览器报名字不符、`init-stack.sh` 自己的回显都写着 localhost）。
+# 不 `source` 而逐行解析：避免 `.env` 里的内容被当成 shell 执行。
+load_env_defaults() {
+  local env_file="${STACK_ROOT}/.env" line key value
+  [ -f "${env_file}" ] || return 0
+  while IFS= read -r line || [ -n "${line}" ]; do
+    case "${line}" in '' | '#'*) continue ;; esac
+    case "${line}" in *=*) ;; *) continue ;; esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    # 键必须是合法变量名（挡掉 `export K=V` 这类写法）
+    case "${key}" in '' | *[!A-Za-z0-9_]*) continue ;; esac
+    # 去外层引号（gops 会把空值写成 `KEY=""`）
+    case "${value}" in
+      \"*\") value="${value#\"}"; value="${value%\"}" ;;
+      \'*\') value="${value#\'}"; value="${value%\'}" ;;
+    esac
+    value="${value%$'\r'}"
+    # 已经显式给过的环境变量不覆盖（bash 3.2 没有 ${!var}，用 printenv 判空）
+    if [ -z "$(printenv "${key}" || true)" ]; then
+      export "${key}=${value}"
+    fi
+  done < "${env_file}"
+}
+load_env_defaults
+
 copy_missing() {
   local src="$1" dst="$2"
   [ -d "${src}" ] || return 0

@@ -30,13 +30,14 @@
 cp .env.example .env
 
 # 1) 密钥：`${SEC_...}` 的真值（0640）
-mkdir -p sys/.wist
-cat > sys/.wist/sec-value.yml <<'YAML'
+mkdir -p .wist
+cat > .wist/sec-value.yml <<'YAML'
 SEC_EVIDENCE_DB_URL: postgres://evidence:evidence-dev-only@evidence-postgres:5432/wist_evidence
 YAML
-chmod 0640 sys/.wist/sec-value.yml
+chmod 0640 .wist/sec-value.yml
 
 # 2) 运行态备料（gops 用栈根作为 project directory；sys/configs 只是种子）
+#    脚本会自己读栈根 `.env`（显式传入的环境变量优先），所以 `WEB_DOMAIN` 直接生效
 bash sys/scripts/init-stack.sh
 
 # 3) 起（手动 compose 要显式指定 --project-directory .，与 gops 行为一致）
@@ -58,7 +59,7 @@ curl -k -H 'Authorization: Bearer wcr_…' https://127.0.0.1:8088/api/health
 ```bash
 gops sys update      # sys/setting/vars.yml -> sys/merged_vars.yml
 gops sys localize    # 生成栈根 .env
-bash sys/scripts/init-stack.sh   # 种子 -> 栈根 configs/ 与 .wist/
+bash sys/scripts/init-stack.sh   # 种子 -> 栈根 configs/ 与 .wist/（并读 .env 签 web 证书）
 gops run start
 ```
 
@@ -125,7 +126,7 @@ TLS 在 `web` 容器里终结（80 只给健康检查、不发布到宿主）。
 
 2. 在 cred 页面建「认证系统」**`wist-field-api`**（角色至少 `read`），签发一张**接入券**（`wot_…`）；
    同时拿到 **setup code**：`bash sys/scripts/init-stack.sh` 会幂等生成它并写进
-   `sys/.wist/sec-value.yml` → `SEC_FIELD_API_PEER_SETUP_CODE`（0640；没生成过就读不到，
+   `.wist/sec-value.yml` → `SEC_FIELD_API_PEER_SETUP_CODE`（0640；没生成过就读不到，
    现场也不要自己编一个弱口令）。
 
 3. 起栈（`gops run start`），打开 **<https://127.0.0.1:8088/__init>**，填 setup code + 券 → 提交。
@@ -238,7 +239,7 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 |---|---|
 | `sys/configs/evidence/wist-evidence.toml` | 种子：sink 监听 / 允许的 kind / 索引库 / 对象存储（运行态在 `configs/evidence/`） |
 | `sys/configs/field-api/field-api.toml` | 入口身份、到证据服务的租户与敏感度、atlas 读/写地址、VM 地址 |
-| `sys/.wist/sec-value.yml` | `${SEC_...}` 的真值（DB URL、COS 凭据），**不入库** |
+| `.wist/sec-value.yml` | `${SEC_...}` 的真值（DB URL、COS 凭据），**不入库** |
 
 - 写端点不校验身份（内网可信）；P1 换成 HTTPS 双向认证；
 - 两处 `tenant`（evidence 的 sink 声明与 field-api 的读身份）必须一致。
@@ -364,8 +365,8 @@ endpoint = "${WIST_METRICS_ENDPOINT}"   # http://<field-stack 地址>:18428
 chmod 0644 sys/configs/evidence/*.toml sys/configs/field-api/*.toml
 
 # 密钥：0640，属主/属组给 10001（需要 sudo）
-sudo chown 10001:10001 sys/.wist/sec-value.yml
-chmod 0640 sys/.wist/sec-value.yml
+sudo chown 10001:10001 .wist/sec-value.yml
+chmod 0640 .wist/sec-value.yml
 ```
 
 容器内的健康检查用**静态** busybox（`busybox:stable-musl`）：`busybox:stable` 现在要求

@@ -82,7 +82,7 @@ services:
       - "${EVIDENCE_SINK_BIND_IP}:${EVIDENCE_SINK_HOST_PORT}:8080"
     volumes:
       - ./configs/evidence:/etc/wist-evidence:ro
-      # 密钥真值（DB URL / COS 凭据 / sink token）：`sys/.wist/sec-value.yml`，0640。
+      # 密钥真值（DB URL / COS 凭据 / sink token）：`.wist/sec-value.yml`，0640。
       - ./.wist:/sec:ro
       # 正文落本地目录（`objects.kind = file`）：宿主上能直接 `find` / `zstd -dc` 看，重启不丢。
       # 容器内是 uid 10001，所以这个目录要在 init-stack.sh 里先建好并给到可写（0777，仅开发栈）。
