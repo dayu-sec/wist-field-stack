@@ -145,7 +145,6 @@ VERSION="$(tr -d '[:space:]' <"${SRC}/version.txt" 2>/dev/null || echo dev)"
 env_value() { sed -n "s/^$1=//p" "${STACK}/.env" | head -1 | tr -d '"'; }
 REGISTRY="$(env_value "${REGISTRY_VAR}")"
 [[ -n "${REGISTRY}" ]] || REGISTRY="ghcr.io/dayu-sec"
-CURRENT_TAG="$(env_value "${TAG_VAR}")"
 IMAGE="${REGISTRY}/${IMAGE_NAME}:${TAG}"
 
 echo "== 构建（${SVC}）"

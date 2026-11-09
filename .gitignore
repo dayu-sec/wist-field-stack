@@ -3,7 +3,6 @@
 .wist/
 sys/.wist/
 values/
-sys/merged_vars.yml
 sys/resolved_vars.yml
 deliver.lock
 

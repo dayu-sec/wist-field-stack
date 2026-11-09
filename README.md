@@ -67,6 +67,23 @@ gops run start
 
 现场覆盖值写 ops-prj 的 `values/wist-field-stack/sys_value.yml`，不要改 `sys/setting/vars.yml`。
 
+## 发布
+
+打 `vX.Y.Z` tag 会触发 `.github/workflows/release.yml`（与 `wist-cred-stack` 同一套）：
+
+1. **verify**：用入库的 `.env.example` 渲染 compose + `./dev/lint.sh` + `dev/tests/*.test.sh`；
+2. **package**：`git archive` 出 `wist-field-stack-<tag>.tar.gz`（只含 git 跟踪内容）；
+3. **release**：发到 GitHub Release；
+4. **可选 COS**：配了 `COS_BUCKET` 时把同一个包推到
+   `cos://$COS_BUCKET/<COS_PREFIX|wist-field-stack>/<tag>/` 与 `/latest/`，
+   带 `x-cos-meta-artifact-sha256`。
+
+本栈**不含二进制**：`wist-evidence` / `wist-field-api` / `wist-field-web` / `wist-atlas`
+的镜像由各自仓的流水线产出。
+
+`sys/merged_vars.yml` 是**入库文件**：改 `sys/setting/vars.yml` 后跑 `gops sys update`，
+把两份一起提交；`.env.example` 也必须同步（`dev/tests/env-example-drift.test.sh` 会在 CI 里钉住）。
+
 ## 本机访问
 
 浏览器入口：**<https://127.0.0.1:8088/>**（`WEB_BIND_IP` / `WEB_HOST_PORT` 可改）。

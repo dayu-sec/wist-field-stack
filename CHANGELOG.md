@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 0.2.4 · 2026-11-09
+
+- **发布对齐 `wist-cred-stack`**：打 tag 后自动产部署包（`wist-field-stack-<tag>.tar.gz`）、
+  建 GitHub Release，并把同一个包同步到 COS（`<prefix>/<tag>/` 与 `<prefix>/latest/`，
+  带 `x-cos-meta-artifact-sha256` 元数据）。`<prefix>` 默认 `wist-field-stack`，由 `COS_PREFIX` 覆盖。
+- **`sys/merged_vars.yml` 改为入库文件**：改 `sys/setting/vars.yml` 后跑 `gops sys update`，
+  两份一起提交（部署包靠 `git archive` 带它走）。
+- **`.env.example` 与 `sys/merged_vars.yml` 逐键对齐**（新增 `dev/tests/env-example-drift.test.sh`，
+  CI 用的就是这份 `.env.example` 渲染 compose）；新增 `dev/lint.sh`（shellcheck 两道门）。
+- 组件版本不变：`field-api v0.6.5-alpha` / `field-web v0.2.5-alpha` / `evidence v0.1.15-alpha`。
+
 ## 0.2.3 · 2026-11-09
 
 - **发布火车**：`field-api v0.6.5-alpha` + `field-web v0.2.5-alpha` + `evidence v0.1.15-alpha`。
