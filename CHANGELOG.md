@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 0.2.7-alpha · 2026-11-09
+
+- **跟版 `field-api v0.6.6-alpha`**：`[verify].audience` 支持 `${…}` 展开。
+- **新增栈变量 `FIELD_API_AUDIENCE`**（产品默认 `wist-field-api`）：认证系统名是
+  部署事实 —— 它必须等于 cred 侧那个 peer 的名字，不同站点往往不同名（例：`local-field-alpha`）。
+  现在在 `values/<系统>/sys_value.yml` 里设一次就行，不用再改 `configs/field-api/cred.toml`
+  （那份是现场态，升级也不会被覆盖，容易忘而得到 401 `audience_mismatch`）。
+- **已有站点要注意**：现场 `configs/field-api/cred.toml` 里如果写的是字面量（`wist-field-api` 或
+  别的名字），继续用没问题（字面量原样生效）。想改由变量管就把那行换成
+  `audience = "${FIELD_API_AUDIENCE}"`（或 `FORCE_CONFIGS=1 bash sys/scripts/init-stack.sh`），
+  并在 `values/` 里设 `FIELD_API_AUDIENCE`，然后 `gops sys localize && gops run start`。
+
 ## 0.2.6-alpha · 2026-11-09
 
 - **`init-stack.sh` 现在自己读栈根 `.env`**（显式传入的环境变量优先）。以前手工跑只会
