@@ -39,13 +39,14 @@ timeout_secs = 10
 
 # 资产拓扑：`base_url` 用于 `/api/health` 探活与 `/api/atlas/*` 代理（读 `/healthz` 与 `/api/*`）；
 # `sink_url` 是**数据面视角**的写端点，只用于「接入」页展示 / copy。
+# 主机名来自栈变量 `ATLAS_INGEST_PUBLIC_HOST`（每个部署实例不同），端口与那条 bind 映射同一个来源。
 # 画布已是 field-web 的一个组件，不再有 atlas-web 容器。
 [atlas]
 base_url = "http://atlas:8080"
 # 读接口令牌：atlas 从 0.3.4 起要求 `Authorization: Bearer`。值来自栈变量
 # `ATLAS_API_TOKEN`（compose 以 `SEC_ATLAS_API_TOKEN` 传进来）。空 = 对面没开鉴权。
 auth_token = "${SEC_ATLAS_API_TOKEN}"
-sink_url = "http://127.0.0.1:18801"
+sink_url = "http://${ATLAS_INGEST_PUBLIC_HOST}:${ATLAS_INGEST_HOST_PORT}"
 
 # 运行指标：VictoriaMetrics 的查询入口（栈内）。
 # 只用于探活与后续「运行指标」页；数据面上报走它自己的 remote-write 端点。
@@ -67,9 +68,10 @@ base_url = "http://metrics:8428"
 # agents = ["agent-host-a55a338d7723"]
 
 # 展示在「数据面接入」页的写端点（**数据面视角**的地址，不是容器内地址）。
-# 现场改成 EVIDENCE_SINK_BIND_IP 对应的内网地址 + 端口。
+# 主机名 / 端口都是栈变量：现场在 `values/<系统>/sys_value.yml` 覆盖
+# `EVIDENCE_SINK_PUBLIC_HOST` / `EVIDENCE_SINK_HOST_PORT`，不要改本文件。
 [integration]
-sink_url = "http://127.0.0.1:18800"
+sink_url = "http://${EVIDENCE_SINK_PUBLIC_HOST}:${EVIDENCE_SINK_HOST_PORT}"
 # 上面那个地址 BFF 到不了，所以写端点的**探活**另给一条 BFF 视角的地址：
 # 证据写监听在容器内 8080，与读监听（8443）分开。
 sink_health_url = "http://evidence:8080/healthz"

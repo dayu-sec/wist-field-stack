@@ -217,7 +217,9 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 | `WEB_BIND_IP` / `WEB_HOST_PORT` | `127.0.0.1:8088` | 唯一浏览器入口（HTTPS，容器内 443） |
 | `WEB_DOMAIN` | `localhost` | 证书 SAN 里的域名（SAN 同时带 `localhost` 与 `127.0.0.1`） |
 | `EVIDENCE_SINK_BIND_IP` / `EVIDENCE_SINK_HOST_PORT` | `127.0.0.1:18800` | 证据写入端口（数据面 `http_sink`） |
+| `EVIDENCE_SINK_PUBLIC_HOST` | `127.0.0.1` | 「接入」页展示的写端点主机名（数据面视角，**每个实例不同**）；端口复用 `EVIDENCE_SINK_HOST_PORT` |
 | `ATLAS_INGEST_BIND_IP` / `ATLAS_INGEST_HOST_PORT` | `127.0.0.1:18801` | 资产拓扑写入端口（数据面投 DSNAP） |
+| `ATLAS_INGEST_PUBLIC_HOST` | `127.0.0.1` | 「接入」页展示的资产拓扑写端点主机名；端口复用 `ATLAS_INGEST_HOST_PORT` |
 | `VM_BIND_IP` / `VM_HOST_PORT` | `127.0.0.1:18428` | VictoriaMetrics：数据面 remote write + 运维查询 |
 | `ATLAS_PROBE` / `ATLAS_PROBE_INTERVAL_SECS` | `on` / `300` | atlas 写探针（往保留租户写最小 DSNAP） |
 | `EVIDENCE_READ_PORT` | `8443` | 证据读监听（容器内）。**一个来源**：evidence 的 `[read].listen_addr`、compose 健康检查、field-api 的 `evidence.base_url` 都从它来 |
@@ -326,6 +328,10 @@ EVIDENCE_SINK_URL=http://<证据服务内网地址>:18800      # EVIDENCE_SINK_B
 ATLAS_SINK_URL=http://<atlas 内网地址>:18801           # ATLAS_INGEST_BIND_IP / PORT
 WIST_METRICS_ENDPOINT=http://<本栈内网地址>:18428      # VM_BIND_IP / VM_HOST_PORT
 ```
+
+> 前两行的地址就是「接入」页展示的那两条：栈里由 `EVIDENCE_SINK_PUBLIC_HOST` /
+> `ATLAS_INGEST_PUBLIC_HOST`（+ 对应 `*_HOST_PORT`）渲染。现场把主机名写进
+> `values/<系统>/sys_value.yml`，**与这里填的一致**，接入页就不用人工对照。
 
 **关键前提**：连接器不做字段映射，发出去的就是 OML 的输出 —— 所以 OML 必须产出
 证据的 `cust_id` / `cmd_id` / `content`，或 atlas 的 `cust_id` / `content`

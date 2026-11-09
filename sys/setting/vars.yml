@@ -44,6 +44,11 @@ system:
     value: 127.0.0.1
   - name: EVIDENCE_SINK_HOST_PORT
     value: 18800
+  # 「接入」页展示 / copy 的那条写端点的**主机名**（数据面视角，不是容器内地址）。
+  # 每个部署实例不同：数据面看到的本机名 / 内网 IP / 对外域名。
+  # 端口不在这里重复 —— 仍由上面的 EVIDENCE_SINK_HOST_PORT 单点决定。
+  - name: EVIDENCE_SINK_PUBLIC_HOST
+    value: 127.0.0.1
 
   # 凭据收数监听（field-api 的 mTLS）：`wist-cred` 推摘要到这里。
   # 默认只绑回环；cred 在别的机器时改成内网地址（并确保证书 SAN 对得上）。
@@ -88,6 +93,9 @@ system:
     value: 127.0.0.1
   - name: ATLAS_INGEST_HOST_PORT
     value: 18801
+  # 同上：资产拓扑写端点展示用的主机名（端口用 ATLAS_INGEST_HOST_PORT）。
+  - name: ATLAS_INGEST_PUBLIC_HOST
+    value: 127.0.0.1
   # 写探针：往保留租户写一份最小 DSNAP，验「转换 → 落库 → 物化」。
   # off 时 `/healthz` 仍正常，只是没有 probe 块（页面会显示「写探针还没跑过」就不再出现）。
   - name: ATLAS_PROBE

@@ -25,6 +25,8 @@ system:
   value: 127.0.0.1
 - name: EVIDENCE_SINK_HOST_PORT
   value: 18800
+- name: EVIDENCE_SINK_PUBLIC_HOST
+  value: 127.0.0.1
 - name: CREDENTIALS_BIND_IP
   value: 127.0.0.1
 - name: CREDENTIALS_HOST_PORT
@@ -45,6 +47,8 @@ system:
   value: 127.0.0.1
 - name: ATLAS_INGEST_HOST_PORT
   value: 18801
+- name: ATLAS_INGEST_PUBLIC_HOST
+  value: 127.0.0.1
 - name: ATLAS_PROBE
   value: on
 - name: ATLAS_PROBE_INTERVAL_SECS

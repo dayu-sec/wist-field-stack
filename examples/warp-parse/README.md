@@ -26,6 +26,9 @@ EVIDENCE_SINK_URL=http://<证据服务内网地址>:18800
 # 资产拓扑**写端口**（同一个栈，默认 127.0.0.1:18801）。
 ATLAS_SINK_URL=http://<atlas 内网地址>:18801
 
+# 这两条地址要和栈的「接入」页一致：主机名分别由 EVIDENCE_SINK_PUBLIC_HOST /
+# ATLAS_INGEST_PUBLIC_HOST 渲染（现场写进 values/<系统>/sys_value.yml）。
+
 # 运行指标的 VictoriaMetrics（本栈 `metrics` 服务，默认 127.0.0.1:18428）。
 WIST_METRICS_ENDPOINT=http://<console-stack 内网地址>:18428
 ```

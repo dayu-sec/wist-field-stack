@@ -155,6 +155,13 @@ services:
       WIST_FIELD_SEC_FILE: /sec/sec-value.yml
       # 证据读端口：`field-api.toml` 的 `evidence.base_url` 里是 `${EVIDENCE_READ_PORT}`。
       EVIDENCE_READ_PORT: ${EVIDENCE_READ_PORT}
+      # 「接入」页展示的写端点（数据面视角）：`field-api.toml` 里是
+      # `${EVIDENCE_SINK_PUBLIC_HOST}:${EVIDENCE_SINK_HOST_PORT}` 等模板。
+      # 主机名每个部署实例不同 —— 现场在 `values/` 覆盖，不改文件。
+      EVIDENCE_SINK_PUBLIC_HOST: ${EVIDENCE_SINK_PUBLIC_HOST}
+      EVIDENCE_SINK_HOST_PORT: ${EVIDENCE_SINK_HOST_PORT}
+      ATLAS_INGEST_PUBLIC_HOST: ${ATLAS_INGEST_PUBLIC_HOST}
+      ATLAS_INGEST_HOST_PORT: ${ATLAS_INGEST_HOST_PORT}
       # 自注册：`cred.toml` 里这几个都是 `${FIELD_API_…}`，与上面同一机制（BFF 启动时
       # 用「密钥文件 + 进程环境」展开）。不收变量就只能改文件，而现场不该为此改文件。
       FIELD_API_ADVERTISE_HOST: ${FIELD_API_ADVERTISE_HOST}
