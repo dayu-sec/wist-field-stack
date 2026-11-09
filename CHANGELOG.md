@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 0.2.6-alpha · 2026-11-09
+
+- **`init-stack.sh` 现在自己读栈根 `.env`**（显式传入的环境变量优先）。以前手工跑只会
+  回落 `WEB_DOMAIN=localhost`，web 叶证书签成 `SAN: localhost` —— 看起来“证书有了”，
+  实际与站点域名不符（浏览器报名字不符，cred 拨号也会证书校验失败）。不 `source` 而是逐行解析，
+  `.env` 里的内容不会被当作 shell 执行。
+- **修正 `.wist/sec-value.yml` 的路径**：README / compose / evidence 配置注释写的是
+  `sys/.wist/...`，实际读取的是**栈根** `.wist/...`（compose 挂 `./.wist:/sec:ro`，
+  `init-stack.sh` 也只检查栈根）。按旧文档放文件会得到
+  `secrets file not found: /sec/sec-value.yml`，evidence 无限重启。
+- 组件版本不变：`field-api v0.6.5-alpha` / `field-web v0.2.5-alpha` / `evidence v0.1.15-alpha`。
+
 ## 0.2.5-alpha · 2026-11-09
 
 - **「接入」页展示的写端点不再硬编码 `127.0.0.1`**：新增栈变量
