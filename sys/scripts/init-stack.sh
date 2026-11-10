@@ -43,17 +43,49 @@ load_env_defaults() {
 load_env_defaults
 
 copy_missing() {
-  local src="$1" dst="$2"
+  local src="$1" dst="$2" target
   [ -d "${src}" ] || return 0
   mkdir -p "${dst}"
   (cd "${src}" && find . -type d -print0 | while IFS= read -r -d '' d; do
     mkdir -p "${dst}/${d}"
   done
   find . -type f -print0 | while IFS= read -r -d '' f; do
-    if [ ! -e "${dst}/${f}" ]; then
-      cp "${src}/${f}" "${dst}/${f}"
+    target="${dst}/${f}"
+    # compose 里 `./configs/...` 这类**文件级** bind，源缺失时 docker 会把源建成
+    # **同名目录**。留着它，下面 `[ -e ]` 判断就永远跳过复制，容器则报
+    # `read ...: Is a directory`（或 `mount ...: not a directory`）。
+    # 空目录顺手清掉；非空说明现场有东西，停下来让人看。
+    if [ -d "${target}" ]; then
+      if rmdir "${target}" 2>/dev/null; then
+        note "  ↑ ${target} 是空目录（bind 源缺失时被 docker 建的）→ 已清掉并补文件"
+      else
+        echo "  ✗ ${target} 是目录且非空，但本应是文件：人工确认后删掉再跑" >&2
+        exit 1
+      fi
+    fi
+    if [ ! -e "${target}" ]; then
+      cp "${src}/${f}" "${target}"
     fi
   done)
+}
+
+# 只读挂载的属组必须是**容器 gid**：`evidence` / `field-api` 以 10001:10001 运行，
+# 而 Linux 的 bind 不改属主，属组是唯一共享通道。
+# 部署账号通常不是 root、也不在 10001 组里：chgrp 失败就退到 0755/0644 让栈能起
+# （本机所有用户可读密钥），并提示用 root 跑 `gops sys perms --apply` 收紧。
+CONTAINER_GID="${CONTAINER_GID:-10001}"
+
+# align_ro_perms <路径> <dir|file>
+align_ro_perms() {
+  local path="$1" kind="$2"
+  if chgrp "${CONTAINER_GID}" "${path}" 2>/dev/null; then
+    if [ "${kind}" = "dir" ]; then chmod 2750 "${path}"; else chmod 0640 "${path}"; fi
+    return 0
+  fi
+  if [ "${kind}" = "dir" ]; then chmod 0755 "${path}"; else chmod 0644 "${path}"; fi
+  note "⚠ 无法把 ${path} 的属组改成 ${CONTAINER_GID}（需要 root 或属于该组）"
+  note "  → 已退回 0755/0644 让容器能读（本机用户均可读）；随后以 root 执行 gops sys perms --apply 收紧"
+  return 1
 }
 
 # 1) 运行态目录（栈根）
@@ -95,12 +127,16 @@ for sub in evidence field-api web; do
   done < <(cd "${seed_dir}" && find . -type f | sed 's|^\./||')
 done
 
-# 3) 权限：配置 0644（不含密钥）；密钥目录 0700，由现场放 sec-value.yml（0640）
+# 3) 权限：配置 0644（不含密钥）；密钥目录 2750、密钥文件 0640，属组 = 容器 gid
+#
+# **不要**把 `.wist` 收成 0700：它是只读挂进容器的，容器以 10001:10001 运行，
+# 0700（属主 root）会让容器 stat 不到里面的文件 —— 症状是
+# `secrets file not found: /sec/sec-value.yml`，文件明明在，只是没权限。
 chmod 0755 "${STACK_ROOT}/configs" "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/web"
 find "${STACK_ROOT}/configs" -type f -name '*.toml' -exec chmod 0644 {} +
-chmod 0700 "${STACK_ROOT}/.wist"
+align_ro_perms "${STACK_ROOT}/.wist" dir || true
 if [ -f "${STACK_ROOT}/.wist/sec-value.yml" ]; then
-  chmod 0640 "${STACK_ROOT}/.wist/sec-value.yml"
+  align_ro_perms "${STACK_ROOT}/.wist/sec-value.yml" file || true
 else
   note "缺少 ${STACK_ROOT}/.wist/sec-value.yml：至少需要 SEC_EVIDENCE_DB_URL"
 fi
@@ -111,8 +147,8 @@ SEC_FILE="${STACK_ROOT}/.wist/sec-value.yml"
 if [ -f "${SEC_FILE}" ] && ! grep -q '^SEC_FIELD_API_PEER_SETUP_CODE:' "${SEC_FILE}"; then
   setup_code="crp_$(openssl rand -hex 16 2>/dev/null || echo "$(date +%s)$$" | shasum -a 256 | cut -c1-32)"
   printf 'SEC_FIELD_API_PEER_SETUP_CODE: %s\n' "${setup_code}" >> "${SEC_FILE}"
-  chmod 0640 "${SEC_FILE}"
-  note "已生成自注册 setup code（写入 .wist/sec-value.yml，0640）"
+  align_ro_perms "${SEC_FILE}" file || true
+  note "已生成自注册 setup code（写入 .wist/sec-value.yml）"
   note "  → /__init 页面上要填这个；接入券（wot_…）由 cred 页面另发"
   note "  → 现在就要用的话：  echo ${setup_code}"
 fi
@@ -126,6 +162,17 @@ fi
 mkdir -p "${STACK_ROOT}/identity/field-api/cred"
 CRED_DIR="${STACK_ROOT}/identity/field-api/cred"
 RENDERED_CRED="${STACK_ROOT}/configs/field-api/cred.toml"
+# 老现场收尾：`configs/field-api/cred.toml` 缺失时，docker 会在 `/cred` 里再建一个
+# `cred.toml` 目录（就是上面那个坏源连带的挂载点）。留着它，`up --force-recreate`
+# 会直接失败 `mount ... not a directory`。空目录清掉；非空就停下来。
+if [ -d "${CRED_DIR}/cred.toml" ]; then
+  if rmdir "${CRED_DIR}/cred.toml" 2>/dev/null; then
+    note "  ↑ 清掉误建的目录 ${CRED_DIR}/cred.toml（应是挂载点文件）"
+  else
+    echo "  ✗ ${CRED_DIR}/cred.toml 是目录且非空：先人工处理，否则 field-api 起不来" >&2
+    exit 1
+  fi
+fi
 if [ -f "${CRED_DIR}/server.crt" ] && [ -f "${CRED_DIR}/server.key" ]; then
   # 容器以 uid 10001 读这份材料（server.key 由接入命令/自注册写成 0600），
   # 所以**必须**对齐属主/权限：Linux 上跑 `gops sys perms --apply`。

@@ -373,5 +373,22 @@ sudo chown 10001:10001 .wist/sec-value.yml
 chmod 0640 .wist/sec-value.yml
 ```
 
+**目录也必须给到组**：`.wist` 是只读挂载，容器要先能 `stat` 到里面的文件 ——
+`chmod 0700 .wist` 会让 evidence 报 `secrets file not found: /sec/sec-value.yml`
+（文件明明在，只是没权限）。正确形态是 `2750`、属组 10001：
+
+```bash
+sudo chgrp 10001 .wist && chmod 2750 .wist
+```
+
+`init-stack.sh` 会自己做这一步（容器 gid 可用 `CONTAINER_GID` 覆盖）；以非 root 执行且
+不在 10001 组里时，它退到 `0755/0644` 让栈能起，并提示随后用 root 跑
+`gops sys perms --apply` 收紧。
+
+**先跑 `init-stack.sh` 再 `up`**：顺序反了的话，docker 会把缺失的**文件级** bind 源
+（如 `configs/field-api/cred.toml`）建成**同名目录**，之后容器报
+`read ...: Is a directory` / `mount ...: not a directory`。`init-stack.sh` 现在会识别
+并清掉这种空目录（非空则停下报错）。
+
 容器内的健康检查用**静态** busybox（`busybox:stable-musl`）：`busybox:stable` 现在要求
 glibc 2.38，而镜像基础是 bookworm（2.36），会直接报 `GLIBC_2.38 not found`。

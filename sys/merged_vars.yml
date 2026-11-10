@@ -63,6 +63,8 @@ system:
   value: 127.0.0.1
 - name: VM_HOST_PORT
   value: 18428
+- name: METRICS_SINK_PUBLIC_HOST
+  value: 127.0.0.1
 - name: VM_RETENTION
   value: 30d
 - name: PG_BIND_IP

@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## 0.2.8-alpha · 2026-11-10
+
+- **修 `init-stack.sh` 把 `.wist` 收成 `0700` 导致 evidence 起不来**：该目录是**只读挂进容器**的，
+  而 `evidence` / `field-api` 以 `10001:10001` 运行；`0700`（属主 root）让容器 `stat` 不到里面的
+  文件，症状是 `secrets file not found: /sec/sec-value.yml` —— 配置和密钥明明都在，只是没权限。
+  现在按挂载契约给到 `2750`、属组 = 容器 gid（`CONTAINER_GID` 可覆盖）；以非 root 跑且不在
+  该组时退回 `0755/0644` 让栈能起，并提示随后用 root 执行 `gops sys perms --apply` 收紧。
+- **`init-stack.sh` 识别「被 docker 建成目录」的 bind 源**：先 `up` 再 init 时，缺失的
+  **文件级** bind 源（如 `configs/field-api/cred.toml`）会被 docker 建成同名目录，之后
+  复制被跳过、容器报 `read ...: Is a directory` / `mount ...: not a directory`。空目录现在
+  自动清掉并补文件，非空则报错停下；`/cred` 下由同一挂载点产生的
+  `identity/field-api/cred/cred.toml` 目录也一并清理。
+- **接入页「运行指标」的写端点改为由配置生成**：`field-api.toml` 新增 `[metrics] write_url`
+  （**数据面视角**的 VM 写端点，与 `atlas.sink_url` 同性质），栈变量新增
+  `METRICS_SINK_PUBLIC_HOST`。三条输入通道因此各有自己的数据面主机名 ——
+  证据 `EVIDENCE_SINK_PUBLIC_HOST`、资产 `ATLAS_INGEST_PUBLIC_HOST`、指标 `METRICS_SINK_PUBLIC_HOST`；
+  端口仍由各自的 `EVIDENCE_SINK_HOST_PORT` / `ATLAS_INGEST_HOST_PORT` / `VM_HOST_PORT` 单点决定。
+  BFF 把 `write_url + /api/v1/import` 交给接入页，**页面不再手写地址**
+  （原来前端写的是 `WIST_METRICS_ENDPOINT`，与实际用的 `CONSOLE_VM_ENDPOINT` 不一致）。
+- **`*_PUBLIC_HOST` 与 `*_BIND_IP` 是一对**：域名解析到站点地址、bind 却还在 `127.0.0.1` 时，
+  端口只挂在 loopback 上，别的机器拨不进来。三条输入通道（18800 / 18801 / 18428）要对外时，
+  必须同时把对应的 `*_BIND_IP` 设成 `0.0.0.0`。
+- 组件版本跟随：`[metrics] write_url` 与接入页样例对齐在 **`field-api v0.6.7`** /
+  **`field-web v0.2.6`** 里；本版默认 tag 暂留 `v0.6.6-alpha` / `v0.2.5-alpha`，
+  这两项配置在旧组件上**不生效（也不会报错）**，等组件发版后再跟。其余不变：
+  `evidence v0.1.15-alpha`。
+
 ## 0.2.7-alpha · 2026-11-09
 
 - **跟版 `field-api v0.6.6-alpha`**：`[verify].audience` 支持 `${…}` 展开。
