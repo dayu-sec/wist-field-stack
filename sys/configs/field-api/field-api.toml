@@ -54,10 +54,9 @@ sink_url = "http://${ATLAS_INGEST_PUBLIC_HOST}:${ATLAS_INGEST_HOST_PORT}"
 # 不配就不展示运行指标的写入样板（不编造占位地址）。
 [metrics]
 base_url = "http://metrics:8428"
-# 数据面视角的主机名**复用** EVIDENCE_SINK_PUBLIC_HOST（它就是这个意思：
-# 数据面看到的本机名 / 内网 IP / 对外域名），端口用 VM 那条 ports 映射的宿主端口。
-# 不另开一个 VM_PUBLIC_HOST —— 同一个事实写两遍就是漂移的起点。
-write_url = "http://${EVIDENCE_SINK_PUBLIC_HOST}:${VM_HOST_PORT}"
+# 数据面视角的主机名：与证据（EVIDENCE_SINK_PUBLIC_HOST）/ atlas
+# （ATLAS_INGEST_PUBLIC_HOST）同一粒度 —— 每条通道各一个，虽然常常同值。
+write_url = "http://${METRICS_SINK_PUBLIC_HOST}:${VM_HOST_PORT}"
 
 # 业务层：把「主机集合」归到一个命名的逻辑单元（指标页第 1 层，用来算投入产出比）。
 #

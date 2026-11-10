@@ -119,8 +119,12 @@ system:
     value: 127.0.0.1
   - name: VM_HOST_PORT
     value: 18428
-  # 注意：接入页里 VM 的写端点**不另设主机名变量** —— 它复用
-  # `EVIDENCE_SINK_PUBLIC_HOST`（数据面视角的本栈主机名）+ 这个宿主端口。
+  # 数据面视角的 VM 主机名。与 EVIDENCE_SINK_PUBLIC_HOST / ATLAS_INGEST_PUBLIC_HOST
+  # 同一性质、同一粒度：**每条输入通道各一个**。三者在这台机上可能恰好同值，
+  # 但它们是三条可分开寻址的通道（比如 VM 走内网、证据走 VPN），不能合成一个。
+  # 端口不在这里重复 —— 仍由 VM_HOST_PORT 单点决定。
+  - name: METRICS_SINK_PUBLIC_HOST
+    value: 127.0.0.1
   # 保留期：与网关栈同一档（月度运维窗口）。
   - name: VM_RETENTION
     value: 30d

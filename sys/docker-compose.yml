@@ -163,8 +163,9 @@ services:
       ATLAS_INGEST_PUBLIC_HOST: ${ATLAS_INGEST_PUBLIC_HOST}
       ATLAS_INGEST_HOST_PORT: ${ATLAS_INGEST_HOST_PORT}
       # 运行指标写端点（数据面视角）：`field-api.toml` 的 `[metrics] write_url`
-      # 是 `http://${EVIDENCE_SINK_PUBLIC_HOST}:${VM_HOST_PORT}` —— 主机名复用
-      # 上面那个「数据面看本栈」的变量，不另开一个。
+      # 是 `http://${METRICS_SINK_PUBLIC_HOST}:${VM_HOST_PORT}`。
+      # 与证据 / atlas 两条通道同等：主机名各一个，端口各一个。
+      METRICS_SINK_PUBLIC_HOST: ${METRICS_SINK_PUBLIC_HOST}
       VM_HOST_PORT: ${VM_HOST_PORT}
       # 自注册：`cred.toml` 里这几个都是 `${FIELD_API_…}`，与上面同一机制（BFF 启动时
       # 用「密钥文件 + 进程环境」展开）。不收变量就只能改文件，而现场不该为此改文件。
