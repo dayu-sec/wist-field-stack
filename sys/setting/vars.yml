@@ -13,7 +13,7 @@ system:
   - name: FIELD_API_IMAGE_TAG
     value: v0.6.7-alpha
   - name: FIELD_WEB_IMAGE_TAG
-    value: v0.2.6-alpha
+    value: v0.2.7-alpha
   - name: EVIDENCE_IMAGE_TAG
     value: v0.1.15-alpha
 

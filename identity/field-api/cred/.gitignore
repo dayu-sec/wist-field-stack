@@ -1,0 +1,8 @@
+# cred 接入材料是**运行态**，不进版本库：
+#   · 自注册（`/__init`）成功后由 field-api 写在这里；
+#   · 或者由接入命令 `join.sh --dir ./identity/field-api/cred` 写入。
+#
+# 里面有私钥（server.key），提交等于把本服务的身份公开。目录本身要留在仓库里
+# （compose 把它挂到容器 `/cred`，源目录缺失时 docker 会建一个 root 属主的目录）。
+*
+!.gitignore

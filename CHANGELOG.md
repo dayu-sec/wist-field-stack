@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 0.2.9-alpha · 2026-11-11
+
+- **跟版 `field-web v0.2.7-alpha`**：左下角版本号不再渲染成 `vv0.2.6-alpha`
+  （CI 传的是带 `v` 的 git tag，UI 又拼了一个），且标签由 `wist-field-api`
+  改为 `wist-field-web` —— 那个号是前端构建版本，和 BFF 的 0.6.x 不是一条线。
+- 其余组件不变：`field-api v0.6.7-alpha` / `evidence v0.1.15-alpha`。
+
 ## 0.2.8-alpha · 2026-11-10
 
 - **修 `init-stack.sh` 把 `.wist` 收成 `0700` 导致 evidence 起不来**：该目录是**只读挂进容器**的，
