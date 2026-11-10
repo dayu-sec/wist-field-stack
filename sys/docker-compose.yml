@@ -162,6 +162,11 @@ services:
       EVIDENCE_SINK_HOST_PORT: ${EVIDENCE_SINK_HOST_PORT}
       ATLAS_INGEST_PUBLIC_HOST: ${ATLAS_INGEST_PUBLIC_HOST}
       ATLAS_INGEST_HOST_PORT: ${ATLAS_INGEST_HOST_PORT}
+      # 运行指标写端点（数据面视角）：`field-api.toml` 的 `[metrics] write_url`
+      # 是 `http://${METRICS_WRITE_HOST}:${VM_HOST_PORT}`。
+      # 地址只有一个来源（VM 那条 ports 映射），入页样板由 BFF 从配置生成。
+      METRICS_WRITE_HOST: ${VM_PUBLIC_HOST}
+      VM_HOST_PORT: ${VM_HOST_PORT}
       # 自注册：`cred.toml` 里这几个都是 `${FIELD_API_…}`，与上面同一机制（BFF 启动时
       # 用「密钥文件 + 进程环境」展开）。不收变量就只能改文件，而现场不该为此改文件。
       # audience 也是部署事实（= cred 侧 peer 名），同样从这里展开。

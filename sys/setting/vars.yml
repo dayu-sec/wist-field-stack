@@ -119,6 +119,10 @@ system:
     value: 127.0.0.1
   - name: VM_HOST_PORT
     value: 18428
+  # 数据面视角的 VM 主机名（接入页样板里的写端点用）。
+  # 与 ATLAS_INGEST_PUBLIC_HOST 同一性质：每个部署实例不同，现场在 values/ 覆盖。
+  - name: VM_PUBLIC_HOST
+    value: 127.0.0.1
   # 保留期：与网关栈同一档（月度运维窗口）。
   - name: VM_RETENTION
     value: 30d

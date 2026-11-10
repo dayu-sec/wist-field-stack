@@ -48,10 +48,13 @@ base_url = "http://atlas:8080"
 auth_token = "${SEC_ATLAS_API_TOKEN}"
 sink_url = "http://${ATLAS_INGEST_PUBLIC_HOST}:${ATLAS_INGEST_HOST_PORT}"
 
-# 运行指标：VictoriaMetrics 的查询入口（栈内）。
-# 只用于探活与后续「运行指标」页；数据面上报走它自己的 remote-write 端点。
+# 运行指标：VictoriaMetrics。
+# `base_url` 是 **BFF 视角**（栈内）的查询入口，用于探活与指标页。
+# `write_url` 是 **数据面视角**的写入端点，只用于接入页展示 / copy ——
+# 不配就不展示运行指标的写入样板（不编造占位地址）。
 [metrics]
 base_url = "http://metrics:8428"
+write_url = "http://${METRICS_WRITE_HOST}:${VM_HOST_PORT}"
 
 # 业务层：把「主机集合」归到一个命名的逻辑单元（指标页第 1 层，用来算投入产出比）。
 #
