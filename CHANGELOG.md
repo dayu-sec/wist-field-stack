@@ -22,10 +22,9 @@
 - **`*_PUBLIC_HOST` 与 `*_BIND_IP` 是一对**：域名解析到站点地址、bind 却还在 `127.0.0.1` 时，
   端口只挂在 loopback 上，别的机器拨不进来。三条输入通道（18800 / 18801 / 18428）要对外时，
   必须同时把对应的 `*_BIND_IP` 设成 `0.0.0.0`。
-- 组件版本跟随：`[metrics] write_url` 与接入页样例对齐在 **`field-api v0.6.7`** /
-  **`field-web v0.2.6`** 里；本版默认 tag 暂留 `v0.6.6-alpha` / `v0.2.5-alpha`，
-  这两项配置在旧组件上**不生效（也不会报错）**，等组件发版后再跟。其余不变：
-  `evidence v0.1.15-alpha`。
+- 组件跟版：`field-api v0.6.7-alpha` / `field-web v0.2.6-alpha`。`[metrics] write_url`
+  与接入页样例对齐在这两版里 —— **不跟版时这几项配置不生效（也不会报错）**。
+  其余不变：`evidence v0.1.15-alpha`。
 
 ## 0.2.7-alpha · 2026-11-09
 
