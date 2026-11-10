@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# 栈根运行态备料（幂等；在 `gops run start` 之前、以部署账号执行）。
+# 栈根运行态备料（幂等）—— 由 `gx run localize` 在渲染完 configs/ 之后调用；
+# 也可以人工单跑（它自己读栈根 `.env`，显式环境变量优先）。
 #
-# 为什么需要它：`gops` 用**栈根**作为 compose 的 project directory，
-# 所以 compose 里的 `./configs/...`、`./.wist` 解析到栈根，而不是 `sys/`。
-# `sys/configs/` 只是**种子**，这里把缺的文件补到栈根，不覆盖现场改动
-# （与 wist-ingest-stack 的 init 脚本同一纪律）。
+# 为什么用**栈根**而不是 `sys/`：`gops` 用栈根作为 compose 的 project directory，
+# 所以 compose 里的 `./configs/...`、`./.wist` 解析到栈根。
+#
+# **configs/ 不在这里**：它是 `sys/configs/*.tpl` 的渲染产物，由 `gx run localize` 的
+# `gx.tpl` 生成（0.3.0 起）。以前这个脚本按“只补缺”拷种子，代价是“栈升了、运行态那份
+# 还是旧的”——新加的配置项永远不生效（典型：`[metrics] write_url`、`nginx` 的 `/__init`）。
+#
+# 这里只管那些“不能渲染、只能备料”的东西：目录 / 密钥文件 / 自注册 setup code /
+# cred 材料自检 / 前端 TLS 证书。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,57 +23,9 @@ note() { echo "  $*"; }
 # 为什么必须读：本脚本按 `WEB_DOMAIN` 签 web 叶证书，而 `gops run start` **不会**
 # 把 `.env` 导出给这个脚本；手工跑时不读它就会回落 `localhost`，签出一张名字
 # 与站点域名不符的证书（症状：浏览器报名字不符、`init-stack.sh` 自己的回显都写着 localhost）。
-# 不 `source` 而逐行解析：避免 `.env` 里的内容被当成 shell 执行。
-load_env_defaults() {
-  local env_file="${STACK_ROOT}/.env" line key value
-  [ -f "${env_file}" ] || return 0
-  while IFS= read -r line || [ -n "${line}" ]; do
-    case "${line}" in '' | '#'*) continue ;; esac
-    case "${line}" in *=*) ;; *) continue ;; esac
-    key="${line%%=*}"
-    value="${line#*=}"
-    # 键必须是合法变量名（挡掉 `export K=V` 这类写法）
-    case "${key}" in '' | *[!A-Za-z0-9_]*) continue ;; esac
-    # 去外层引号（gops 会把空值写成 `KEY=""`）
-    case "${value}" in
-      \"*\") value="${value#\"}"; value="${value%\"}" ;;
-      \'*\') value="${value#\'}"; value="${value%\'}" ;;
-    esac
-    value="${value%$'\r'}"
-    # 已经显式给过的环境变量不覆盖（bash 3.2 没有 ${!var}，用 printenv 判空）
-    if [ -z "$(printenv "${key}" || true)" ]; then
-      export "${key}=${value}"
-    fi
-  done < "${env_file}"
-}
-load_env_defaults
-
-copy_missing() {
-  local src="$1" dst="$2" target
-  [ -d "${src}" ] || return 0
-  mkdir -p "${dst}"
-  (cd "${src}" && find . -type d -print0 | while IFS= read -r -d '' d; do
-    mkdir -p "${dst}/${d}"
-  done
-  find . -type f -print0 | while IFS= read -r -d '' f; do
-    target="${dst}/${f}"
-    # compose 里 `./configs/...` 这类**文件级** bind，源缺失时 docker 会把源建成
-    # **同名目录**。留着它，下面 `[ -e ]` 判断就永远跳过复制，容器则报
-    # `read ...: Is a directory`（或 `mount ...: not a directory`）。
-    # 空目录顺手清掉；非空说明现场有东西，停下来让人看。
-    if [ -d "${target}" ]; then
-      if rmdir "${target}" 2>/dev/null; then
-        note "  ↑ ${target} 是空目录（bind 源缺失时被 docker 建的）→ 已清掉并补文件"
-      else
-        echo "  ✗ ${target} 是目录且非空，但本应是文件：人工确认后删掉再跑" >&2
-        exit 1
-      fi
-    fi
-    if [ ! -e "${target}" ]; then
-      cp "${src}/${f}" "${target}"
-    fi
-  done)
-}
+# shellcheck source=lib/env-defaults.sh
+. "${SCRIPT_DIR}/lib/env-defaults.sh"
+load_env_defaults "${STACK_ROOT}"
 
 # 只读挂载的属组必须是**容器 gid**：`evidence` / `field-api` 以 10001:10001 运行，
 # 而 Linux 的 bind 不改属主，属组是唯一共享通道。
@@ -101,31 +59,8 @@ mkdir -p "${STACK_ROOT}/data/field-api"
 chmod 0777 "${STACK_ROOT}/data/field-api"
 note "runtime dirs: ${STACK_ROOT}/configs, ${STACK_ROOT}/.wist, ${STACK_ROOT}/data/{evidence-objects,field-api}"
 
-# 2) 种子 -> 运行态（只补缺）
-copy_missing "${STACK_ROOT}/sys/configs/evidence" "${STACK_ROOT}/configs/evidence"
-copy_missing "${STACK_ROOT}/sys/configs/field-api" "${STACK_ROOT}/configs/field-api"
-copy_missing "${STACK_ROOT}/sys/configs/web" "${STACK_ROOT}/configs/web"
-note "seed copied (existing files kept)"
-
-# 2′) 种子与运行态不一致：**列出来**。只补缺的代价是「栈升了，但现场那份配置还是旧的」，
-#     表现成「新功能配了却没生效」（比如 nginx 少了 `/__init` 那条 location）。
-#     真要跟上种子：FORCE_CONFIGS=1 bash sys/scripts/init-stack.sh
-for sub in evidence field-api web; do
-  seed_dir="${STACK_ROOT}/sys/configs/${sub}"
-  [ -d "${seed_dir}" ] || continue
-  while IFS= read -r rel; do
-    src="${seed_dir}/${rel}"
-    dst="${STACK_ROOT}/configs/${sub}/${rel}"
-    [ -f "${dst}" ] || continue
-    cmp -s "${src}" "${dst}" && continue
-    if [ "${FORCE_CONFIGS:-0}" = "1" ]; then
-      cp "${src}" "${dst}"
-      note "  ↑ 已用种子覆盖 configs/${sub}/${rel}"
-    else
-      note "  ⚠ configs/${sub}/${rel} 与种子不同：合并后再重启（或 FORCE_CONFIGS=1 覆盖）"
-    fi
-  done < <(cd "${seed_dir}" && find . -type f | sed 's|^\./||')
-done
+# 2) configs/ 不在这里：它是 `sys/configs/*.tpl` 的渲染产物（`gx run localize` 的 gx.tpl）。
+#    见文件头 —— 一次性拷贝就是 0.2.x 里“升了栈、配置还是旧的”的根因。
 
 # 3) 权限：配置 0644（不含密钥）；密钥目录 2750、密钥文件 0640，属组 = 容器 gid
 #
@@ -133,7 +68,9 @@ done
 # 0700（属主 root）会让容器 stat 不到里面的文件 —— 症状是
 # `secrets file not found: /sec/sec-value.yml`，文件明明在，只是没权限。
 chmod 0755 "${STACK_ROOT}/configs" "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/web"
-find "${STACK_ROOT}/configs" -type f -name '*.toml' -exec chmod 0644 {} +
+# 配置里没有密钥（密钥是 `${SEC_…}` 占位 + `.wist/` 里的真值），所以整目录 0644。
+# 不只 `*.toml`：`nginx.conf` 也是渲染产物，靠容器读者（nginx master 以 root 起，后面降权）能读。
+find "${STACK_ROOT}/configs" -type f -exec chmod 0644 {} +
 align_ro_perms "${STACK_ROOT}/.wist" dir || true
 if [ -f "${STACK_ROOT}/.wist/sec-value.yml" ]; then
   align_ro_perms "${STACK_ROOT}/.wist/sec-value.yml" file || true

@@ -36,9 +36,11 @@ SEC_EVIDENCE_DB_URL: postgres://evidence:evidence-dev-only@evidence-postgres:543
 YAML
 chmod 0640 .wist/sec-value.yml
 
-# 2) 运行态备料（gops 用栈根作为 project directory；sys/configs 只是种子）
-#    脚本会自己读栈根 `.env`（显式传入的环境变量优先），所以 `WEB_DOMAIN` 直接生效
-bash sys/scripts/init-stack.sh
+# 2) 渲染 configs/（sys/configs/*.tpl -> 栈根 configs/）
+#    `gx run localize` 就是 `gops sys localize` 里的那一步；手动 compose 路也走同一套
+#    （脚本会自己读栈根 `.env`，显式传入的环境变量优先）。
+#    没装 gx 时：先把 `sys/configs/*.toml.tpl` 当普通文件看 —— 里面的占位符不会被替换。
+gx run localize
 
 # 3) 起（手动 compose 要显式指定 --project-directory .，与 gops 行为一致）
 docker compose --project-directory . -f sys/docker-compose.yml --env-file .env up -d
@@ -58,13 +60,18 @@ curl -k -H 'Authorization: Bearer wcr_…' https://127.0.0.1:8088/api/health
 
 ```bash
 gops sys update      # sys/setting/vars.yml -> sys/merged_vars.yml
-gops sys localize    # 生成栈根 .env
-bash sys/scripts/init-stack.sh   # 种子 -> 栈根 configs/ 与 .wist/（并读 .env 签 web 证书）
+gops sys localize    # 生成栈根 .env，并跑 sys/workflows 的 localize 流程：
+                     #   configs/ 渲染 + init-stack.sh（目录 / .wist / web TLS / cred 自检）
 gops run start
 ```
 
-> `gops` 用**栈根**当 compose 的 project directory，所以 `./configs`、`./.wist` 都在栈根；
-> `sys/configs/` 只是种子。手动 `docker compose` 时也要带 `--project-directory .`，否则挂载会指错。
+> **`configs/` 是渲染产物，不是种子副本**（0.3.0 起）：
+> `sys/configs/*.tpl` + `configs/**/*.value.json` -> `configs/**`，每次 `gops sys localize` 重渲。
+> 所以现场**不要改 `configs/` 下的文件**（下次 localize 会被覆盖）：改站点值写
+> `values/<系统>/sys_value.yml`，改产品默认写 `sys/setting/vars.yml`。
+>
+> `gops` 用**栈根**当 compose 的 project directory，所以 `./configs`、`./.wist` 都在栈根。
+> 手动 `docker compose` 时也要带 `--project-directory .`，否则挂载会指错。
 
 现场覆盖值写 ops-prj 的 `values/wist-field-stack/sys_value.yml`，不要改 `sys/setting/vars.yml`。
 
@@ -128,7 +135,7 @@ TLS 在 `web` 容器里终结（80 只给健康检查、不发布到宿主）。
 
 2. 在 cred 页面建「认证系统」（名字要等于栈变量 `FIELD_API_AUDIENCE`，产品默认 `wist-field-api`；
    角色至少 `read`），签发一张**接入券**（`wot_…`）；
-   同时拿到 **setup code**：`bash sys/scripts/init-stack.sh` 会幂等生成它并写进
+   同时拿到 **setup code**：`gops sys localize`（或单跑 `bash sys/scripts/init-stack.sh`）会幂等生成它并写进
    `.wist/sec-value.yml` → `SEC_FIELD_API_PEER_SETUP_CODE`（0640；没生成过就读不到，
    现场也不要自己编一个弱口令）。
 
@@ -157,15 +164,23 @@ TLS 在 `web` 容器里终结（80 只给健康检查、不发布到宿主）。
 
 > 想重来：删掉 `identity/field-api/cred/{server.crt,server.key,client-ca.pem}` 后重启。
 
-### 升级后配置没生效？先看 `init-stack.sh` 的提示
+### 升级后配置没生效？
 
-`sys/configs/` 是**种子**，脚本只补缺、不覆盖现场改动 —— 好处是现场改的端口/域名不会被冲掉，
-代价是“栈升了，但运行态那份还是旧的”（典型表现：nginx 少了 `/__init`，页面直接掉到 SPA）。
+0.3.0 起因不再用“拷种子”这一套：`configs/` 是 **`gx.tpl` 的渲染产物**，
+每次 `gops sys localize` 都重渲（升级的 `regenerate` 阶段也走它）。所以：
 
-所以脚本会逐文件比对并列出差异。确认可以跟种子一致时：
+| 现象 | 真正原因 | 处置 |
+|---|---|---|
+| 升了栈，新加的配置项不存在 | 没跑 localize（或 `localize` 跳过了流程） | `gops sys localize`（注意输出里应有 `run stage flow: gx run localize`） |
+| 输出里写着 `WARN: 跳过阶段流程 localize：…` | 机器上没有 `gx`（或版本太旧） | 装 gx（`gx --version` ≥ 0.14）；否则 configs/ 不会被重渲 |
+| 改了 `values/` 但行为没变 | 渲染没跑 / 容器没重启 | `gops sys localize` 后 `gops run start`（或重启对应容器） |
+| 改了 `configs/` 里的文件，下次升级又变回去 | 那本来就是产物 | 改 `sys/configs/*.tpl`（产品默认）或 `values/`（站点值） |
+
+现场验证：`diff` 一下模板与产物、看产物里还有没有没替换的占位符：
 
 ```bash
-FORCE_CONFIGS=1 bash sys/scripts/init-stack.sh   # 用种子覆盖 configs/ 下的差异
+rg -n '\{\{' configs/          # 应为空（残留的占位符 = 渲染没跑）
+rg -n '\$\{SEC_' configs/      # 只剩 SEC_ 开头的（密钥由服务自己展开，这是对的）
 ```
 
 ### 接入 wist-cred（旧路径：join.sh）
@@ -173,7 +188,8 @@ FORCE_CONFIGS=1 bash sys/scripts/init-stack.sh   # 用种子覆盖 configs/ 下�
 在没有 `[init]` 的部署（例如走入口认证、或 cred 侧只支持接入命令）时仍可用：
 
 ```bash
-bash sys/scripts/init-stack.sh                       # 先备料（目录 / sec-value / web TLS）
+bash sys/scripts/init-stack.sh                       # 先备料（目录 / sec-value / web TLS）—— 注意：它不再生成 configs/
+                                                     # （configs/ 由 `gops sys localize` 的 gx run localize 渲染）
 curl -fsSLk 'https://<cred>/enroll/<券>/join.sh' | bash -s -- \
   --dir './identity/field-api/cred' \
   --host "$(hostname -f)" \
@@ -227,6 +243,7 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 | `VM_BIND_IP` / `VM_HOST_PORT` | `127.0.0.1:18428` | VictoriaMetrics：数据面 remote write + 运维查询 |
 | `ATLAS_PROBE` / `ATLAS_PROBE_INTERVAL_SECS` | `on` / `300` | atlas 写探针（往保留租户写最小 DSNAP） |
 | `EVIDENCE_READ_PORT` | `8443` | 证据读监听（容器内）。**一个来源**：evidence 的 `[read].listen_addr`、compose 健康检查、field-api 的 `evidence.base_url` 都从它来 |
+| `EVIDENCE_TENANT` | `c-001` | 证据服务的租户 = 客户 id（BFF 读的是这个客户的数据；一页一个客户，**每个站点不同**）|
 | `PG_BIND_IP` / `EVIDENCE_PG_HOST_PORT` / `ATLAS_PG_HOST_PORT` | `127.0.0.1:55434/55435` | 两个 PG（仅供排查） |
 | `CREDENTIALS_BIND_IP` / `CREDENTIALS_HOST_PORT` | `0.0.0.0:18802` | cred 推送摘要 / 心跳的 mTLS 端口 |
 | `FIELD_API_ADVERTISE_HOST` | 空（**必填**） | 收数地址的主机名 = 证书 SAN = cred 拨号地址；不填 field-api 启动期就拒 |
@@ -236,17 +253,20 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 | `FIELD_API_CRED_INSECURE_TLS` | `false` | 明确跳过入口证书校验（与 `CA_FILE` 互斥；开了就必须核对指纹） |
 | `FIELD_API_REQUIRE_CRED_SIGNATURE` | `false` | 授权记录强制验签（公钥 `issuer-signing.pub` 同目录；开了但不在 → 启动期报） |
 
-> 改 `EVIDENCE_READ_PORT` 后只需 `gops sys localize && gops run start`；配置文件里写的是
-> `listen_addr = "0.0.0.0:${EVIDENCE_READ_PORT}"`，不要再把端口写死回 TOML。
+> 改 `EVIDENCE_READ_PORT` 后只需 `gops sys localize && gops run start`：端口会被渲染进
+> `configs/evidence/wist-evidence.toml` 与 `configs/field-api/field-api.toml`（模板里是占位符）。
 
 | 文件 | 内容 |
 |---|---|
-| `sys/configs/evidence/wist-evidence.toml` | 种子：sink 监听 / 允许的 kind / 索引库 / 对象存储（运行态在 `configs/evidence/`） |
-| `sys/configs/field-api/field-api.toml` | 入口身份、到证据服务的租户与敏感度、atlas 读/写地址、VM 地址 |
+| `sys/configs/evidence/wist-evidence.toml.tpl` | 模板：sink 监听 / 允许的 kind / 索引库 / 对象存储（渲染到 `configs/evidence/wist-evidence.toml`）|
+| `sys/configs/field-api/field-api.toml.tpl` | 入口身份、到证据服务的租户与敏感度、atlas 读/写地址、VM 地址（渲染到 `configs/field-api/field-api.toml`）|
+| `sys/configs/field-api/cred.toml.tpl` | cred 接入：[verify] / [init] / [publish]（渲染到 `configs/field-api/cred.toml`）|
+| `sys/configs/web/nginx.conf.tpl` | 入口站点（TLS 终结 + `/api` 与 `/__init` 反代；没站点变量，走 tpl 只为跟版本）|
 | `.wist/sec-value.yml` | `${SEC_...}` 的真值（DB URL、COS 凭据），**不入库** |
 
 - 写端点不校验身份（内网可信）；P1 换成 HTTPS 双向认证；
-- 两处 `tenant`（evidence 的 sink 声明与 field-api 的读身份）必须一致。
+- 两处 `tenant`（evidence 的 sink 声明与 field-api 的读身份）必须一致 ——
+  field-api 那份现在由 `EVIDENCE_TENANT` 渲染。
 
 ### 证据正文存在哪（两种模式）
 
@@ -365,8 +385,8 @@ endpoint = "${WIST_METRICS_ENDPOINT}"   # http://<field-stack 地址>:18428
 `evidence` / `field-api` 镜像以 **10001:10001** 运行（非 root）。挂进来的文件要让这个 uid 可读：
 
 ```bash
-# 配置（不含密钥）保持 0644 即可
-chmod 0644 sys/configs/evidence/*.toml sys/configs/field-api/*.toml
+# 配置（不含密钥）保持 0644 —— `sys/scripts/init-stack.sh` 每次 localize 都会把
+# `configs/` 下的文件收成 0644，手动改就改 `sys/configs/*.tpl`
 
 # 密钥：0640，属主/属组给 10001（需要 sudo）
 sudo chown 10001:10001 .wist/sec-value.yml
@@ -385,10 +405,10 @@ sudo chgrp 10001 .wist && chmod 2750 .wist
 不在 10001 组里时，它退到 `0755/0644` 让栈能起，并提示随后用 root 跑
 `gops sys perms --apply` 收紧。
 
-**先跑 `init-stack.sh` 再 `up`**：顺序反了的话，docker 会把缺失的**文件级** bind 源
+**先渲染再 `up`**（`gops sys localize` 已经按这个顺序做完）：顺序反了的话，docker 会把缺失的**文件级** bind 源
 （如 `configs/field-api/cred.toml`）建成**同名目录**，之后容器报
-`read ...: Is a directory` / `mount ...: not a directory`。`init-stack.sh` 现在会识别
-并清掉这种空目录（非空则停下报错）。
+`read ...: Is a directory` / `mount ...: not a directory`。`sys/scripts/init-field-config.sh`
+会在渲染前识别并清掉这种空目录（非空则停下报错）。
 
 容器内的健康检查用**静态** busybox（`busybox:stable-musl`）：`busybox:stable` 现在要求
 glibc 2.38，而镜像基础是 bookworm（2.36），会直接报 `GLIBC_2.38 not found`。

@@ -74,7 +74,9 @@ services:
     environment:
       WIST_EVIDENCE_CONFIG: /etc/wist-evidence/wist-evidence.toml
       WIST_EVIDENCE_SEC_FILE: /sec/sec-value.yml
-      # 读监听端口：配置文件里是 `${EVIDENCE_READ_PORT}`，健康检查与 field-api 也用它。
+      # 读监听端口：`wist-evidence.toml` 的 `[read].listen_addr` 由 `gx run localize` **渲染**
+      # 成字面量（模板里是 `{{evidence_read_port}}`）。这里继续传是**过渡兜底**：老现场
+      # `configs/` 还是 `${EVIDENCE_READ_PORT}` 形态时（渲染被跳过），服务靠它展开。
       EVIDENCE_READ_PORT: ${EVIDENCE_READ_PORT}
       TZ: ${TZ}
     ports:
@@ -153,34 +155,28 @@ services:
     environment:
       WIST_FIELD_CONFIG: /etc/wist-field-api/field-api.toml
       WIST_FIELD_SEC_FILE: /sec/sec-value.yml
-      # 证据读端口：`field-api.toml` 的 `evidence.base_url` 里是 `${EVIDENCE_READ_PORT}`。
+      # ── 下列变量已由 `gx run localize` 渲染进 `configs/field-api/*.toml` ──
+      # 配置里已经是字面量（端口 / 数据面视角的主机名 / 认证系统名 / 收数地址），
+      # 现场改它们走 `values/<系统>/sys_value.yml` + `gops sys localize`，**不再改配置文件**。
+      # 这里继续传是**过渡兜底**：现场 `configs/` 若还是 0.2.x 的 `${VAR}` 形态
+      # （渲染被跳过 / gx 不可用），服务仍能自己展开，不会起不来。0.4.0 会删掉这一组。
       EVIDENCE_READ_PORT: ${EVIDENCE_READ_PORT}
-      # 「接入」页展示的写端点（数据面视角）：`field-api.toml` 里是
-      # `${EVIDENCE_SINK_PUBLIC_HOST}:${EVIDENCE_SINK_HOST_PORT}` 等模板。
-      # 主机名每个部署实例不同 —— 现场在 `values/` 覆盖，不改文件。
       EVIDENCE_SINK_PUBLIC_HOST: ${EVIDENCE_SINK_PUBLIC_HOST}
       EVIDENCE_SINK_HOST_PORT: ${EVIDENCE_SINK_HOST_PORT}
       ATLAS_INGEST_PUBLIC_HOST: ${ATLAS_INGEST_PUBLIC_HOST}
       ATLAS_INGEST_HOST_PORT: ${ATLAS_INGEST_HOST_PORT}
-      # 运行指标写端点（数据面视角）：`field-api.toml` 的 `[metrics] write_url`
-      # 是 `http://${METRICS_SINK_PUBLIC_HOST}:${VM_HOST_PORT}`。
-      # 与证据 / atlas 两条通道同等：主机名各一个，端口各一个。
       METRICS_SINK_PUBLIC_HOST: ${METRICS_SINK_PUBLIC_HOST}
       VM_HOST_PORT: ${VM_HOST_PORT}
-      # 自注册：`cred.toml` 里这几个都是 `${FIELD_API_…}`，与上面同一机制（BFF 启动时
-      # 用「密钥文件 + 进程环境」展开）。不收变量就只能改文件，而现场不该为此改文件。
-      # audience 也是部署事实（= cred 侧 peer 名），同样从这里展开。
       FIELD_API_AUDIENCE: ${FIELD_API_AUDIENCE}
       FIELD_API_ADVERTISE_HOST: ${FIELD_API_ADVERTISE_HOST}
       FIELD_API_CRED_URL: ${FIELD_API_CRED_URL}
       FIELD_API_CRED_CA_FILE: ${FIELD_API_CRED_CA_FILE}
       FIELD_API_CRED_INSECURE_TLS: ${FIELD_API_CRED_INSECURE_TLS}
       FIELD_API_REQUIRE_CRED_SIGNATURE: ${FIELD_API_REQUIRE_CRED_SIGNATURE}
-      # 收数地址里的端口也是模板里的 `${CREDENTIALS_HOST_PORT}` —— 不传进来就展不开，
-      # 启动期会拒（`unresolved environment variable`）。端口只有一个来源：ports 映射那条。
       CREDENTIALS_HOST_PORT: ${CREDENTIALS_HOST_PORT}
-      # atlas 读接口的令牌：`field-api.toml` 的 `[atlas] auth_token = "${SEC_ATLAS_API_TOKEN}"`
-      # 从这里展开（SEC_ 前缀只表示“这是秘密”，值仍来自同一个栈变量）。
+      # atlas 读接口的令牌：这个是**真密钥**，配置里是 `${SEC_ATLAS_API_TOKEN}`（不渲染），
+      # 由服务用「密钥文件 + 进程环境」展开 —— 所以它不属于上面那组，要一直留着。
+      # `SEC_` 前缀只表示“这是秘密”，值仍来自同一个栈变量（现场可写 `${SEC_ATLAS_API_TOKEN}`）。
       SEC_ATLAS_API_TOKEN: ${ATLAS_API_TOKEN}
       TZ: ${TZ}
     ports:
@@ -190,7 +186,8 @@ services:
       - ./configs/field-api:/etc/wist-field-api:ro
       - ./.wist:/sec:ro
       # cred 接入材料：**两种来源**
-      #   · `cred.toml` 由栈渲染（[init] + [publish] + [verify]）→ 跑自注册；
+      #   · `cred.toml` 由栈**渲染**（`sys/configs/field-api/cred.toml.tpl` → `gx.tpl`，
+      #     含 [verify] + [init] + [publish]）→ 跑自注册；
       #   · 或者跑了接入命令（join.sh）写好的 [identity] + [verify]。
       # 目录**可写**：自注册成功后本服务把 server.crt / server.key / client-ca.pem 写到这里。
       # 注意：挂到 `/etc/wist-field-api/cred`（只读配置挂载的子目录）会让 docker 在只读层里

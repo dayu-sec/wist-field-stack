@@ -1,4 +1,10 @@
-# 数据场的 cred 接入配置（**栈渲染**，覆盖 `identity/field-api/cred/cred.toml`）。
+# 数据场的 cred 接入配置（**模板**）—— 由 `gx run localize` 渲染成 `configs/field-api/cred.toml`，
+# 盖在 `identity/field-api/cred/cred.toml`（接入命令写的那份）上。
+# src: `sys/configs/field-api/cred.toml.tpl`
+# 渲染值：`configs/field-api/cred.value.json`（`sys/scripts/init-field-config.sh` 生成）
+#
+# 部署事实（认证系统名 / 收数主机名 / 端口）写成 handlebars 占位符 —— 现场在 `values/` 覆盖；
+# 密钥写 `${SEC_…}` —— 不渲染，由服务从 `.wist/sec-value.yml` 展开。
 #
 # 三种段，三种归属：
 #   [verify]  本服务的决定（认谁、能验什么）
@@ -16,28 +22,28 @@
 
 [verify]
 # 认证系统名：凭据的 `audience` 不等于它就拒（401 `audience_mismatch`）。
-# 它是**部署事实**（必须与 cred 侧那个 peer 同名），所以走变量，站点在 values/ 里设：
-#   FIELD_API_AUDIENCE（产品默认 `wist-field-api`）。
-audience = "${FIELD_API_AUDIENCE}"
+# 它是**部署事实**（必须与 cred 侧那个 peer 同名），所以走渲染值，站点在 values/ 里设
+# `FIELD_API_AUDIENCE`（产品默认 `wist-field-api`）。
+audience = "{{field_api_audience}}"
 allowed_issuers = ["wist-cred"]
 roles = ["read"]
 # 授权记录要不要**强制验签**（Ed25519）：mTLS 已经认了 cred 的身份，这一层防的是
 # “推送链路里的中间人不改内容”（纵深防御）。
 # 公钥在自注册成功后由 cred 写进同目录（issuer-signing.pub）；手动接入时由 join.sh 写。
 # 强制开着但公钥不在 → 启动期就报（不静默退化成“不验签”）。
-# 字符串形式（`"true"` / `"${VAR}"`）与字面 bool 都认。
-require_signature = "${FIELD_API_REQUIRE_CRED_SIGNATURE}"
+# 字符串形式（`"true"` / `"false"`）与字面 bool 都认；这里用字符串是因为渲染值是文本。
+require_signature = "{{field_api_require_cred_signature}}"
 issuer_public_key_file = "issuer-signing.pub"
 
 [init]
 # 从密钥文件展开（`WIST_FIELD_SEC_FILE` → `.wist/sec-value.yml` 的 field_api_peer_setup_code）。
 setup_code = "${SEC_FIELD_API_PEER_SETUP_CODE}"
 # cred 的注册入口；留空 = 初始化页上让操作者填。
-cred_url = "${FIELD_API_CRED_URL}"
+cred_url = "{{field_api_cred_url}}"
 # 信任锚：入口自签时填它的 CA（容器内路径）。留空 = 不配（那就要开 insecure_tls）。
-ca_file = "${FIELD_API_CRED_CA_FILE}"
-insecure_tls = "${FIELD_API_CRED_INSECURE_TLS}"
+ca_file = "{{field_api_cred_ca_file}}"
+insecure_tls = "{{field_api_insecure_tls}}"
 
 [publish]
 # cred 往这里推摘要、往这里探活。主机名必须等于证书 SAN（同一个变量渲染）。
-endpoint = "https://${FIELD_API_ADVERTISE_HOST}:${CREDENTIALS_HOST_PORT}/api/v1/internal/credentials"
+endpoint = "https://{{field_api_advertise_host}}:{{credentials_host_port}}/api/v1/internal/credentials"

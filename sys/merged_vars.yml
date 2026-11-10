@@ -45,6 +45,8 @@ system:
   value: 'false'
 - name: EVIDENCE_READ_PORT
   value: 8443
+- name: EVIDENCE_TENANT
+  value: c-001
 - name: ATLAS_INGEST_BIND_IP
   value: 127.0.0.1
 - name: ATLAS_INGEST_HOST_PORT

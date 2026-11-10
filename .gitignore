@@ -9,6 +9,11 @@ deliver.lock
 # macOS
 .DS_Store
 
+# gx 运行物（`gx run` 生成的报告与运行记录；同 wist-cred-stack / wist-gateway-stack）
+.report
+.run*
+_gal/.report/
+
 # 迁移（gops >= 1.4）：模块按目标模型分组
 sys/*/mods
 

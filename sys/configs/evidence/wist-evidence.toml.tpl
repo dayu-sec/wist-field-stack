@@ -1,6 +1,9 @@
-# 证据服务（wist-evidence）配置 —— 计算区 stack 口径
+# 证据服务（wist-evidence）配置**模板**（handlebars，由 `gx run localize` 渲染）。
+# src: `sys/configs/evidence/wist-evidence.toml.tpl`
+# dst: `configs/evidence/wist-evidence.toml`（compose 挂到 /etc/wist-evidence/wist-evidence.toml）
+# 渲染值：`configs/evidence/wist-evidence.value.json`（`sys/scripts/init-field-config.sh` 生成）
 #
-# `${SEC_...}` 的真值在 `.wist/sec-value.yml`（0640），不写在这里。
+# `${SEC_...}` 的真值在 `.wist/sec-value.yml`（0640），不写在这里、也不渲染。
 
 # ── 写面：数据面直投（明文，只在内网）─────────────────────────────────────
 [sink]
@@ -18,9 +21,10 @@ default_sensitivity = "paths"
 # 认证：写入端点不校验（内网可信）；P1 换成 HTTPS 双向认证。
 
 # ── 读面：field-api（BFF）调用（P0 明网 + 身份头；mTLS 在 P1）─────────────────
-# 端口由栈级变量 `EVIDENCE_READ_PORT` 给（`.env` / `values/`），不在这里写死。
+# 端口由渲染值 `evidence_read_port` 给（栈变量 `EVIDENCE_READ_PORT`），
+# 与 field-api 的 `[evidence].base_url`、compose 健康检查同一个来源。
 [read]
-listen_addr = "0.0.0.0:${EVIDENCE_READ_PORT}"
+listen_addr = "0.0.0.0:{{evidence_read_port}}"
 
 # ── 索引：独立库（不与环境里的其它服务共用）────────────────────────────────
 [index]

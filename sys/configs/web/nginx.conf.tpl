@@ -1,13 +1,17 @@
-# 数据场前端（field-web）的站点配置 —— **TLS 终结在这里**。
+# 数据场前端（field-web）的站点配置**模板**（handlebars，由 `gx run localize` 渲染）。
+# src: `sys/configs/web/nginx.conf.tpl`
+# dst: `configs/web/nginx.conf`（compose 挂到 /etc/nginx/conf.d/default.conf）
 #
-# 由 `sys/scripts/init-stack.sh` 从本文件复制到运行态 `configs/web/nginx.conf`，
-# compose 把它挂到 `/etc/nginx/conf.d/default.conf`；证书目录 `identity/web` 挂到 `/certs`。
+# 为什么要模板（而不是直接推一个 nginx.conf）：这份文件跟进**代码版本**。
+# 0.3.0 之前它是 `init-stack.sh` 从种子一次性拷的，升级后现场还是旧文件——
+# 典型症状：新版加了 `location /__init`，现场却没有，初始化页直接掉到 SPA。
 #
-# 为什么栈里自己带一份、而不用镜像里烤好的那份：镜像那份是 HTTP 版本（开发/单独跑 field-web
-# 时用），站点部署必须终止 TLS —— 访问令牌是 bearer，明文传输等于把凭据写在网线上。
+# 这份模板里**没有**站点相关的量（整份文件没有一个占位符）：`server_name _` 是有意的 ——
+# 入口只有一张证书（SAN 同时含域名 / localhost / 127.0.0.1）、只有一个 server，
+# 写成固定名字反而会让「用 IP 访问」落到另一个默认 server 上。
 #
-# 证书由 `sys/scripts/init-web-tls.sh <域名>` 生成（两级：web CA + 叶），
-# 把 `identity/web/public/web-ca.crt.pem` 导入浏览器信任库一次即可免提示。
+# 证书目录 `identity/web` 挂到 `/certs`；证书由 `sys/scripts/init-web-tls.sh <域名>` 生成
+# （两级：web CA + 叶），把 `identity/web/public/web-ca.crt.pem` 导入浏览器信任库一次即可免提示。
 
 # ── 80：只留健康检查（健康检查不走证书，避免证书过期把容器拖成 unhealthy）──
 # 注意：本端口**不发布到宿主**；对外只有 443。这里不留跳转 ——

@@ -2,19 +2,55 @@ test_envs:
   dep_root: ''
   deps: []
 
-# 现场态：不进交付包、升级/重建时不覆盖。
+# `gops sys package` 打包时排除的路径（相对系统根）。
+#
+# 不变式 `ignore ⊆ protect`：不进交付包的按定义就不是包内容，升级当然也不该碰它。
+# 默认模式走 `git archive`（只看 git 跟踪），这几条是 **`--full` 模式的护栏**。
 ignore:
+  # 现场密钥（`SEC_EVIDENCE_DB_URL` / 自注册 setup code）：绝不进交付包。
   - .wist
   - .env
+  - sys/.wist
+  - sys/merged_vars.yml
+  - sys/resolved_vars.yml
+  # 现场值由 ops-prj 项目维护（`values/<系统>/sys_value.yml`），本仓不跟踪。
+  - values
+  # `configs/` 是 `sys/configs/*.tpl` 的**渲染产物**（0.3.0 起）：
+  # 每台机器一份、可重建、含站点事实 —— 打包没意义，回滚/备份另有安排（见下）。
+  - configs
+
+# 现场态：升级/重建时**不覆盖、也不删**（`gops prj upgrade` 的代码快照也按这几条排除）。
+#
+# `configs/` 必须在这里：它是渲染产物不假，但**只有 localize 能重建**，而升级的
+# apply 阶段只换代码。不保护它的代价是「代码换了、配置没了」，比"配置旧"更难查。
+protect:
+  - .env
+  - configs
+  - .wist
   - sys/.wist
   - sys/merged_vars.yml
   - sys/resolved_vars.yml
   - values
 
-protect:
+# 对外契约：**不可重建的现场事实**。
+#
+# `identity/` 下是两套身份，丢了都要人工跑回现场：
+#   web/      —— 前端站点证书（web CA + 叶）。CA 是浏览器信任库里的那个锚，
+#                重新生成 = 每台机器再导一次 CA；
+#   field-api/cred/ —— wist-cred 自注册拿到的 server.crt / server.key / client-ca.pem
+#                （外加 `issuer-signing.pub`）。丢了就得在 cred 页面重新发券、重新注册，
+#                期间收数通道是断的 —— 所以它是身份，不是缓存。
+#
+# 声明为 `contract` 即**自动纳入保护与备份**，不必在下面再写一遍
+# （同一路径写两处会触发 `contract.overlap` 诊断）。
+contract:
+  - identity
+
+# 备份选取：丢了要人工重来 / 换锚的东西。
+backup:
+  # 渲染出的配置（field-api.toml / cred.toml / wist-evidence.toml / nginx.conf +
+  # `*.value.json` 渲染值）。能重建，但恢复现场时"原样回放"最省事。
+  - configs
+  # 栈根密钥：`SEC_EVIDENCE_DB_URL` 与部署生成的 **setup code**（自注册的一次性凭据）。
+  # setup code 是随机生成的、不可推导 —— 丢了只能重新生成，尚未用掉的接入流程就作废。
   - .wist
-  - .env
-  - sys/.wist
-  - sys/merged_vars.yml
-  - sys/resolved_vars.yml
-  - values

@@ -1,5 +1,51 @@
 # CHANGELOG
 
+## 0.3.0-alpha · 2026-11-11
+
+**结构性变更：`configs/` 从「种子拷贝」改为「模板渲染」**（与 `wist-gateway-stack` /
+`wist-cred-stack` / `wist-center-stack` 同一套）。
+
+### 为什么
+
+旧做法是 `init-stack.sh` 按「只补缺」把 `sys/configs/` 拷到栈根 `configs/`。代价是
+**栈升了、运行态那份还是旧的**：新加的配置项永远不生效，而排查时看到的是一份“看起来对”
+的文件。0.2.8 加 `[metrics] write_url` 就是这么丢的 —— 种子里有、`configs/` 里没有，
+接入页因此不显示运行指标写地址。
+
+### 改了什么
+
+- **新增 `_gal/work.gxl` + `sys/workflows/operators.gxl`**：`gops sys localize` 现在会执行
+  `gx run localize`（galaxy-ops ≥ 1.3.4 / galaxy-flow ≥ 0.14）。此前本栈是纯
+  `docker-compose` 类型，没有这两个文件，`localize` 找不到流程就**静默跳过**。
+- **`sys/configs/` 下的四份配置改为 `*.tpl`**：
+  `field-api.toml` / `cred.toml` / `wist-evidence.toml` / `nginx.conf`。
+  非密钥的部署值换成 handlebars 占位符（`{{...}}`），由 `gx.tpl` 渲染成字面量；
+  **`${SEC_…}` 原样保留**，仍由服务启动时从 `.wist/sec-value.yml` 展开（密钥不落盘）。
+- **新增 `sys/scripts/init-field-config.sh`**：从栈根 `.env` 生成三份 `*.value.json` 渲染值
+  （幂等；内容不变不碰 mtime）。之所以是脚本而不是 GXL 里的 `printf`，因为 GXL 不还原
+  `\"` 而 Ubuntu 的 `/bin/sh` 是 dash —— 会写出非法 JSON，且 macOS 上看不出来。
+- **新增 `sys/scripts/lib/env-defaults.sh`**：`.env` 读取器从 `init-stack.sh` 里抽出来共用。
+- **`init-stack.sh` 不再拷 `configs/`**：只留目录 / 密钥文件 / 自注册 setup code /
+  cred 材料自检 / web TLS；`configs/` 的权限收尾保留（所有文件 → 0644）。
+  `FORCE_CONFIGS=1` 与「种子与运行态不一致」的提示**一并删除** —— 不再需要。
+- **新增 `EVIDENCE_TENANT`**：`[evidence].tenant`（客户 id）原本是写死在种子里的 `c-001`，
+  改成模板后必须能按站点覆盖，否则现场改了会被下一次 localize 盖回去。
+- **`sys-prj.yml` 补齐现场态声明**：`configs` 进 `ignore` / `protect` / `backup`，
+  `identity` 进 `contract`（web 证书 CA + cred 自注册材料，丢了要重新发券注册），
+  `.wist` 进 `backup`（setup code 是随机生成的，丢了接入流程作废）。
+  少了这几条，`gops prj upgrade` 回滚时按 `protect ∪ contract ∪ backup` 排除代码快照，
+  `configs/` 有被当成代码一起回退的风险。
+
+### 升级注意
+
+- **升级后 `configs/` 会被重渲**：现场在 `configs/` 下做过的改动**会丢**。
+  站点值请写 `values/<系统>/sys_value.yml`（`EVIDENCE_TENANT` / `*_PUBLIC_HOST` /
+  `FIELD_API_*` 等），产品默认写 `sys/setting/vars.yml`。
+- 机器上必须有 **gx**（`gx --version` ≥ 0.14）：没有的话 `gops sys localize` 会打
+  `WARN: 跳过阶段流程 localize：…`，configs 不会被重渲（栈还能跑，但配置停在旧版本）。
+- compose 里那一组 `EVIDENCE_READ_PORT` / `FIELD_API_*` 环境变量**这一版仍保留**：
+  配置渲染被跳过时服务还能自己展开（过渡兜底）。0.4.0 删除。
+
 ## 0.2.9-alpha · 2026-11-11
 
 - **跟版 `field-web v0.2.7-alpha`**：左下角版本号不再渲染成 `vv0.2.6-alpha`

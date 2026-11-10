@@ -1,4 +1,11 @@
-# field-api 配置 —— 计算区 stack 口径
+# field-api 配置**模板**（handlebars，由 `gops sys localize` 的 `gx run localize` 渲染）。
+# src: 本文件（`sys/configs/field-api/field-api.toml.tpl`）
+# dst: `configs/field-api/field-api.toml`（compose 挂到 /etc/wist-field-api/field-api.toml）
+# 渲染值：`configs/field-api/field-api.value.json`（`sys/scripts/init-field-config.sh` 生成）
+#
+# 两条规矩（与 wist-gateway-stack / wist-cred-stack 同一套）：   · **部署值**（端口、数据面视角的主机名、租户…）写成 handlebars 占位符 —— 现场在
+#     `values/<系统>/sys_value.yml` 覆盖，不要改这个文件；
+#   · **密钥**写 `${SEC_…}` —— 不渲染、不落盘，由服务启动时从 `.wist/sec-value.yml` 展开。
 #
 # 浏览器只跟 BFF 说话；到证据服务的租户 / scope / 敏感度只在这里。
 
@@ -29,10 +36,12 @@ required_roles = ["read"]
 
 # 身份：**这里的 tenant 就是客户 id**（证据服务的租户=客户）。
 # 想同时看多个客户需要本服务侧加客户筛选（当前一页一个客户）。
-# 端口来自栈级变量 `EVIDENCE_READ_PORT`，与证据服务的监听保持同一个来源。
+# 端口由渲染值 `evidence_read_port` 给（来自栈变量 `EVIDENCE_READ_PORT`），
+# 与证据服务的读监听、compose 健康检查同一个来源。
 [evidence]
-base_url = "http://evidence:${EVIDENCE_READ_PORT}"
-tenant = "c-001"
+base_url = "http://evidence:{{evidence_read_port}}"
+# 租户就是客户 id（证据服务的租户 = 客户）。每个站点不同，所以走渲染值而不是写死。
+tenant = "{{evidence_tenant}}"
 scopes = ["evidence:read"]
 max_sensitivity = "paths"
 timeout_secs = 10
@@ -46,7 +55,7 @@ base_url = "http://atlas:8080"
 # 读接口令牌：atlas 从 0.3.4 起要求 `Authorization: Bearer`。值来自栈变量
 # `ATLAS_API_TOKEN`（compose 以 `SEC_ATLAS_API_TOKEN` 传进来）。空 = 对面没开鉴权。
 auth_token = "${SEC_ATLAS_API_TOKEN}"
-sink_url = "http://${ATLAS_INGEST_PUBLIC_HOST}:${ATLAS_INGEST_HOST_PORT}"
+sink_url = "http://{{atlas_ingest_public_host}}:{{atlas_ingest_host_port}}"
 
 # 运行指标：VictoriaMetrics。
 # `base_url` 是 **BFF 视角**（栈内）的查询入口，用于探活与指标页。
@@ -54,9 +63,9 @@ sink_url = "http://${ATLAS_INGEST_PUBLIC_HOST}:${ATLAS_INGEST_HOST_PORT}"
 # 不配就不展示运行指标的写入样板（不编造占位地址）。
 [metrics]
 base_url = "http://metrics:8428"
-# 数据面视角的主机名：与证据（EVIDENCE_SINK_PUBLIC_HOST）/ atlas
+# 数据面视角的主机名 / 端口：与证据（EVIDENCE_SINK_PUBLIC_HOST）/ atlas
 # （ATLAS_INGEST_PUBLIC_HOST）同一粒度 —— 每条通道各一个，虽然常常同值。
-write_url = "http://${METRICS_SINK_PUBLIC_HOST}:${VM_HOST_PORT}"
+write_url = "http://{{metrics_sink_public_host}}:{{vm_host_port}}"
 
 # 业务层：把「主机集合」归到一个命名的逻辑单元（指标页第 1 层，用来算投入产出比）。
 #
@@ -76,7 +85,7 @@ write_url = "http://${METRICS_SINK_PUBLIC_HOST}:${VM_HOST_PORT}"
 # 主机名 / 端口都是栈变量：现场在 `values/<系统>/sys_value.yml` 覆盖
 # `EVIDENCE_SINK_PUBLIC_HOST` / `EVIDENCE_SINK_HOST_PORT`，不要改本文件。
 [integration]
-sink_url = "http://${EVIDENCE_SINK_PUBLIC_HOST}:${EVIDENCE_SINK_HOST_PORT}"
+sink_url = "http://{{evidence_sink_public_host}}:{{evidence_sink_host_port}}"
 # 上面那个地址 BFF 到不了，所以写端点的**探活**另给一条 BFF 视角的地址：
 # 证据写监听在容器内 8080，与读监听（8443）分开。
 sink_health_url = "http://evidence:8080/healthz"

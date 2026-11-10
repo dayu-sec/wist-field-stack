@@ -3,6 +3,10 @@
 # 现场值不要写在这里：写 ops-prj 的 `values/<系统名>/sys_value.yml`。
 # 链路：本文件 -> `gops sys update` -> sys/merged_vars.yml
 #       -> `gops sys localize`（+ values/ 覆盖）-> 栈根 .env
+#                                          -> `gx run localize`：渲染 configs/（sys/configs/*.tpl）
+#
+# 所以这里的值同时被两处消费：compose 的 `${VAR}`（来自 .env）与配置模板的 `{{var}}`
+# （来自渲染值 *.value.json）。改一个变量要一并看这两处 —— 现场的配置文件不再手改。
 #
 # 容器内端口/路径/服务名是应用契约，直接写在 sys/docker-compose.yml 里。
 system:
@@ -92,6 +96,13 @@ system:
   # 都从这里来；改这里就全改。
   - name: EVIDENCE_READ_PORT
     value: 8443
+
+  # 证据服务的**租户**（= 客户 id）：BFF 用它作为 `[evidence].tenant`，读的都是这个客户的数据。
+  # 一页一个客户，所以每个站点不同 —— 现场在 `values/<系统>/sys_value.yml` 覆盖。
+  # 0.3.0 之前它是写死在 `sys/configs/field-api/field-api.toml` 里的字面量（`c-001`），
+  # 改成模板后被渲染，现场不用再改配置（改了也会被下一次 localize 盖回去）。
+  - name: EVIDENCE_TENANT
+    value: c-001
 
   # 资产拓扑写端口：给数据面 wparse 投 DSNAP（与证据写端口同一个道理），
   # 默认只绑回环；现场改成数据面所在网段的内网地址。
