@@ -23,6 +23,10 @@ jobs:
       # 少一个变量这里就报，避免发出一个「现场一 up 就缺变量」的包。
       - name: Render compose
         run: |
+          # `sys/docker-compose.yml` 用 `include` 引入客户 PG 片段（`configs/cells/compose.yml`），
+          # 而 `configs/` 是现场态（不入库）—— 这里用入库骨架铺一份，否则 include 找不到文件。
+          mkdir -p configs/cells
+          cp sys/configs/cells/compose.yml configs/cells/compose.yml
           docker compose --env-file .env.example \
             -f sys/docker-compose.yml --project-directory . config > /dev/null
 

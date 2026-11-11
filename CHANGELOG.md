@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 0.4.1-alpha · 2026-11-11
+
+- **修 CI**：`sys/docker-compose.yml` 用 `include` 引入 `configs/cells/compose.yml`，
+  而 `configs/` 是现场态（不入库）→ 干净 checkout 上 `docker compose config` 报
+  `no such file or directory`，release 的 verify 阶段直接失败。
+  verify 现在先用入库骨架（`sys/configs/cells/compose.yml`）铺一份再渲染。
+  （本地/现场不受影响：`init-stack.sh` 本来就会兜底创建它。）
+
 ## 0.4.0-alpha · 2026-11-11
 
 **多客户 data-field**（一栈服务多客户、数据物理隔离、使用前先选客户）。
