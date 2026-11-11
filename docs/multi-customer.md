@@ -174,6 +174,8 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 
 ### 5.7 资产拓扑（atlas）：客户标识与隔离（**未实施，方案已定**）
 
+> 可执行拆分（atlas 仓任务、栈侧 diff 草案、里程碑与回滚）见 [`docs/atlas-m1.7-tasks.md`](./atlas-m1.7-tasks.md)。
+
 #### 5.7.1 现状（逐条核实过）
 
 | 事实 | 证据 |
