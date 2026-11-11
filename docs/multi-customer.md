@@ -241,7 +241,7 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 | 3 | `atlas-app/src/http.rs` | 11 个 `/api/*` 读接口加 `?tenant=<cust_id>`，映射成 `tenant_id` 再进 storage | 把现成的 storage 过滤接上；BFF 注入方式与证据一致 |
 | 4 | `atlas-api/src/query.rs` | `list_all_hosts` 收口 —— 多租户库下不允许无租户调用（只留给 probe / 运维诊断） | 防“以后又有人绕开” |
 | 5 | `atlas-app` | `default_tenant_id_async()` 与 `_probe` 常量租户改为**部署给定**（配置项），不再“拿库里第一个 host 猜” | 单库多租户时代的假设，per-customer 库下会猜错 |
-| 6 | atlas 侧 store 路由 | 按 `tenant` 选 store/pool（同 evidence 的 `Backends`，每 cell 一个 pool） | 一个进程连多库 |
+| 6 | atlas 侧 store 路由 | 按 `tenant` 选 store（同 evidence 的 `Backends`）；**一个 cell 一条 PG 连接**（`tokio_postgres::Client` 单连接，不是连接池 —— 与现在单库形态一致） | 一个进程连多库 |
 | 7 | 栈 | `add-customer.sh`：生成 `atlas_tenant_id`（写进 `cells.json`，之后**永不重算**）、建 `pg-<cust>-atlas`、在该库落 `tenant` 行；`wist-atlas.toml` 渲染 cells；`<data-root>/<cust>/pg-atlas` | 客户清单仍只有一份；租户身份是**注册事实**，不是计算结果 |
 | 8 | 网关 OML | 删掉 `adm.oml` 里的 UUID 死值，改成 `read(tenant_id)` **直接发客户号** | 数据面只负责“这行属于哪个客户”，不负责编码转换 |
 
@@ -281,7 +281,8 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 |---|---|
 | 配置与数据面不同步（客户已投递但 cells 没渲染 / 没重启） | 未登记一律 400 + 数据面 rescue 可见；`/healthz` 输出已登记 cells |
 | 生成器被替换 → “重算出的 UUID 不同” | 只影响“掉配置后恢复”；运行时以各库的 `tenant` 表为准（**库是权威**） |
-| 一个进程 × N 库的连接数 | 每 cell 独立 pool，`max_connections` 默认 4（与 evidence 同口径） |
+| 一个进程 × N 库的连接数 | 每 cell 一条 PG 连接（`LivePostgresExecutor` 内部是单个 `tokio_postgres::Client`，不是连接池）；客户数上到几十时再考虑换池 |
+| 启动时为每个 cell 重放全部迁移 | 迁移全是 `IF NOT EXISTS`，幂等；库多时启动会多几秒 |
 | 存量单库数据要迁到 per-customer 库 | 按 `tenant_id` `COPY ... TO` 再导入；probe 租户数据直接丢弃 |
 | `tenant_ref` / `tenant_id` 撞号 | 双向 UNIQUE，撞了显式失败 |
 

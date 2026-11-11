@@ -18,6 +18,9 @@
 
 ## 1. 任务总览
 
+> **A1–A9 已在 `wist-atlas` 0.4.0 实现**（2026-11-11）。本文保留为“当时怎么拆的 + 实测撞到的坑”，
+> 未做的两项见 §8。
+
 | ID | 仓 | 任务 | 依赖 | 规模 |
 |---|---|---|---|---|
 | A1 | `wist-atlas` | `cells` 配置加载（文件格式 + 启动校验） | — | M |
@@ -139,7 +142,15 @@ CREATE TABLE IF NOT EXISTS tenant (
 - `let (store, tenant_id) = router.resolve_write(&write.cust_id)?;` → 未命中 `400 tenant_unregistered`，文案要带 `cust_id` 与"去 `add-customer.sh` 登记"的提示（**不**回显已登记的客户清单）；
 - 兼容期保留一条：`cust_id` 能解析成 UUID **且** 命中某 cell 的 `tenant_id` → 照用（给老站点的 OML 死值留一个窗口，M1.7c 后删除）。
 
-`atlas-wist-ingest` CLI（批量导入）同步：`--tenant` 仍收 UUID，另加 `--cust-id`（配合 `WIST_ATLAS_CELLS_FILE` 解析）；两者都给时报错。
+`atlas-wist-ingest` CLI（批量导入）：**本轮未改**，仍只收 `--tenant <UUID>`。
+多客户站点做离线回放时，先从库里取一次：
+
+```sql
+SELECT tenant_id FROM tenant WHERE tenant_ref = '<cust_id>';
+```
+
+再把得到的 UUID 传给 `--tenant`。不在这里重复解析 `cells.json`：那个文件属于
+`atlas-app`，让 `atlas-wist-ingest` 反过来依赖它会成环，而它的使用频率不值得为此拆一个共享 crate。
 
 ### A5 · 读接口接线
 
@@ -457,14 +468,38 @@ if state.config.evidence.allowed_tenants.len() > 1 {
 
 | 里程碑 | 内容 | 可独立上线？ | 回滚 |
 |---|---|---|---|
-| **M1.7a** | A1–A4 + A9（1,5,7,8,9） | ✅ 无 cells 文件时行为不变 | 删除 cells 文件 |
+| **M1.7a** | A1–A4 + A9（1,5,7,8,9） | ✅ **不配 cells 文件**时行为完全不变 | 删除 cells 文件 |
 | **M1.7b** | A5–A8 + S5 | ✅ | 同上 |
-| **M1.7c** | S1–S3 + G1 | ✅ | 恢复 OML 死值；库不动 |
+| **M1.7c** | S1–S3 + G1 | ✅ 推荐同轮切；分两次也行（见下） | 恢复 OML 死值 + 删 cells 文件 |
 
-**顺序不能反**：先发 atlas（向后兼容）→ 再让栈生成 cells + 拓扑库 → 最后切数据面发客户号。
-若先切 OML，atlas 还是旧版 → 400 直接进 rescue（可回滚但会丢一段时间的数据）。
+### 为什么这里有个“顺序”问题
 
-**S4（501）建议先于 M1.7a 上线**：它独立、成本极低，先把"跨客户可见"这个风险关掉。
+atlas 一旦加载了 cells 清单，写入口只认**客户号**（外加兼容期的“已登记 UUID”）：
+
+| 阶段 | atlas | 栈 | 数据面 OML | 结果 |
+|---|---|---|---|---|
+| 1 | 0.4.0，无 cells | 不变 | 旧（发 UUID） | ✅ 行为不变 |
+| 2 | 0.4.0 **+ cells** | 加了拓扑库 | 旧（发 UUID） | ⚠ 仅当客户用旧 UUID 登记时可用（兼容期） |
+| 3 | 0.4.0 + cells | 同上 | 新（发客户号） | ✅ |
+
+所以两种做法都可以，推荐 1：
+
+1. **同一维护窗口**把“加 cells”与“切 OML”一起做（步骤最少、不留兼容代码在线）；
+2. **分两次**：先加 cells 时把客户登记成**老 OML 里的那个 UUID**
+   （`add-customer.sh --atlas-tenant-id <老 UUID>`），再切 OML。
+   atlas 0.4.0 的写入口有**兼容期**：`cust_id` 能解析成 UUID 且**精确等于**某个已登记
+   租户的 `tenant_id` → 照用（不派生、不模糊、未登记的还是 400）。
+   切的代价：多一条要记得删的兼容路径。
+
+> 兼容期是`or_else` 里的几行（`http.rs` 的 `resolve_write`），切成发客户号后那个分支不再
+> 会被走到；确定所有站点都切完就把 `find_by_tenant` 一并删掉。
+
+「先切 OML、后加 cells」仍然不行：旧 atlas（无 cells）会把客户号当 UUID 解析 → 400。
+
+**顺序（硬）**：atlas 升级（无 cells）→ 同一轮加 cells + 切 OML。
+「先切 OML」同样不行：旧 atlas 会把客户号当 UUID 解析 → 400。
+
+**S4（501）建议先于 M1.7a 上线**：它独立、成本极低，先把“跨客户可见”这个风险关掉。
 
 ---
 
@@ -476,3 +511,19 @@ if state.config.evidence.allowed_tenants.len() > 1 {
 | `wist-field-api` | 同上 + `cargo test --test contract` |
 | `wist-field-stack` | `./dev/lint.sh && bash dev/tests/env-example-drift.test.sh && gops sys localize && gops run config` |
 | 端到端 | 见 `docs/multi-customer.md` §5.7.7 的 6 条验收 |
+
+---
+
+## 8. 实现期实测撞到的坑（2026-11-11）
+
+| # | 现象 | 根因 | 正确做法 |
+|---|---|---|---|
+| 1 | 启动即失败，`Cannot convert String to uuid`（单元测试抓不到，只有真连库才炸） | `PostgresExecutor` 的参数一律以**文本**绑定；SQL 写 `$1::uuid` 会让 tokio-postgres 把参数**推断**成 `uuid` 类型 | 照抄本仓既有写法：`NULLIF($1, '')::uuid`（所有 `postgres/sql.rs` 都是这个形状） |
+| 2 | 既有用例 `http_ingest_rejects_an_empty_cust_id` 变红 | 我一度把「空 cust_id」统一改成 `cust_id is empty`；但单库形态的老口径是「报不是 UUID」—— 那句更能告诉现场该填什么 | 空值拦截只放在**多客户分支**（单 cell 会自动选中，空值必须拦）；单库分支保持 UUID 报错 |
+| 3 | 每请求都多一次 HashMap/String 克隆 | `HttpAppState` 每请求被 axum clone，`Option<CellRouter>` 跟着克隆整张客户表 | `Option<Arc<CellRouter>>` |
+| 4 | OpenAPI spec 里 6 个读接口少了 `tenant` 参数 | 只给 handler 加了 `Query<TenantQuery>`，忘了 `#[utoipa::path(params(...))]` | 6 处补 `TenantQuery`（spec 与 Router 共用一份路径，但**参数**是分开声明的） |
+| 5 | `#[derive(Debug)]` 编译不过 | `TopologyMonolith` 没有 `Debug` | `RoutedCell` / `CellRouter` 只 derive `Clone`（`HttpAppState` 需要） |
+| 6 | —— | 设计层面：`LivePostgresExecutor` 是**单连接**（`tokio_postgres::Client`），不是池 | 文档别写 `max_connections=4`；客户数上到几十再谈换池 |
+
+**给下一个人的一句话**：atlas 的 storage 参数全部是文本 + SQL 里显式 cast；
+写新的 `INSERT`/`UPDATE` 时照抄 `postgres/sql.rs` 的形状，别用 `$n::uuid`。
