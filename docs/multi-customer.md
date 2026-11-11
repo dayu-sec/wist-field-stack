@@ -247,7 +247,8 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 
 #### 5.7.5 短期兜底（在 1–8 做完之前）
 
-多客户站点（`allowed_tenants.len() > 1`）时，BFF 的 `/api/atlas/*` **直接返回 501 `atlas_not_multi_tenant`**，响应体写明“atlas 尚未按客户隔离”。
+**已实现**（`wist-field-api` 0.7.1）：多客户站点（`allowed_tenants.len() > 1`）时，BFF 的 `/api/atlas/*`
+直接返回 **501 `atlas_not_multi_tenant`**；`atlas` 未配置时仍回 404；单客户站点行为不变。
 
 理由：现在它是“看着能用、实际跨客户可见”，这种半可用状态比坏掉更危险（与“页面能开但永远 401”同一类问题）。单客户站点保持现状不动。
 
