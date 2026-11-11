@@ -19,7 +19,7 @@
 | 证据（evidence） | ✅ M1 | 客户调查报告，天然按 `cust_id` 组织，是这次的主体 |
 | 运行指标（VM） | ✅ M1.5 查询隔离 | 指标带 `tenant_id` label（来源：网关 `bind-tenant` → `WP_GLOBAL_TAGS`），按客户过滤即可（§5.6） |
 | 选客户的授权来源 | M1.5 配置白名单 / M2 凭据 | **本期不动 `wist-cred`**：先让 BFF 从配置里的 `allowed_tenants` 取；以后再换成凭据的 `resources.tenants` |
-| 资产拓扑（atlas） | ❌ 后续（**已知缺口**） | 它有独立的租户模型（UUID），与 `cust_id` 不同源，BFF 目前纯透传 —— `/api/atlas/*` **不按客户过滤** |
+| 资产拓扑（atlas） | ⏳ 方案已定，未实施（§5.7） | 保留 atlas 的 `tenant_id`（路由 + 审计），改“共享计算 + 每客户库”；做完前 BFF 在多客户站点直接 501 |
 | 凭据摘要表 | ❌ 不分 | 它是"人"的授权表，按客户分反而查不到自己 |
 
 ## 2. 决定架构的四条事实（都已核实）
@@ -44,15 +44,17 @@
 | 凭据摘要表 | 不分（单份） | — |
 | cred 接入材料（`identity/`） | 不分（这个 BFF 的身份） | — |
 
-## 4. 客户标识的两条链路
+## 4. 客户标识的三条链路
 
 ```
 写：wparse ──(单端口、单配置、不带客户)──► evidence ──[按 body.cust_id 选后端]──► PG-<cust>
 读：浏览器 ──(令牌 + ?tenant=)──► field-api ──[校验 ✅ 再用自己的 tenant]──► evidence(读口) ──► PG-<cust>
+写：wparse ──(body.cust_id = atlas 租户 UUID)──► atlas ──[UUID 选库 / 租户]──► PG-<cust>-atlas
 ```
 
 - **写侧**没有任何客户信息可依赖，只看 `cust_id`：这就是为什么分流必须在服务端。
 - **读侧**的客户由 BFF 校验：**本期授权源是配置 `allowed_tenants`**（不碰 `wist-cred`），`?tenant=` 只用来"选"，不能用来"授"；校验通过后 BFF 用自己解析出的 tenant 去读。M2 再把授权源换成凭据的 `resources.tenants`（校验点不变）。
+- **atlas 侧多一层编码**：它的租户是 UUID，而 evidence 的租户是客户号字符串；目前靠数据面 OML 里一行 `uuid5` 死值硬顶（换客户要改模型），且读接口完全不带租户 —— 见 §5.7。
 
 ## 5. 详细设计
 
@@ -170,11 +172,110 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 > 坑：指标的 `tenant_id`（来自网关绑定，tag-safe `[A-Za-z0-9_.:/=@+,-]{1,64}`）与证据的 `cust_id`
 > **必须是同一个 ID 空间**，否则“选了客户 A，证据有、指标空”。绑定时就要对齐，不要到页面上才发现。
 
+### 5.7 资产拓扑（atlas）：客户标识与隔离（**未实施，方案已定**）
+
+#### 5.7.1 现状（逐条核实过）
+
+| 事实 | 证据 |
+|---|---|
+| atlas 的租户是 **UUID**，不是客户号 | `crates/atlas-domain/src/common.rs:6` `pub struct TenantId(pub Uuid)` |
+| 写入口把 `cust_id` **直接当 UUID 解析**，不是 UUID 就 400 | `crates/atlas-app/src/ingest_http.rs:136`，错误文案：`cust_id \`…\` is not a UUID; it is the atlas tenant id, not the external tenant ref` |
+| 唯一的“客户号 → UUID”翻译，是**数据面 OML 里一行死值** | `wist-gateway-stack/sys/data-plane/models/oml/agent_uplink/agent_uplink_obs_dsnap/adm.oml:27`：`uuid5(NAMESPACE_OID, "1000000000000000001") = 40a59f7d-df92-5958-adef-61def418d257`（已验算），注释自认“换客户必须同步改这里” |
+| 原始客户串 `tenant_ref` 解析进来但**不落库** | `crates/atlas-domain/src/ingest.rs:43`（`alias = "tenant_ref"`）→ 只存 `tenant_id`，无映射表 → 事后无法反查“这个 UUID 是哪个客户” |
+| 读接口**完全不带租户** | `/api/hosts` → `list_all_hosts`（`crates/atlas-api/src/query.rs:232`）；`/api/services` → `default_tenant_id_async()`（库里第一个 host 的租户，`crates/atlas-app/src/http.rs:741`）；11 个 `/api/*` 读接口没有一个接受 `?tenant=`，也没有 `/api/tenants`；`wist-atlas-web` 源码里 `tenant` 零命中 |
+
+**净效果**：现在 atlas 是“一个进程 + 一个 PG（`atlas-postgres`）+ 库内多租户”，任何持令牌的人能看到**全部客户**的拓扑；而证据侧已经在做“先选客户” —— 两边语义相反。
+
+> 注意 storage 层其实**早就有**按租户过滤的接口（`list_hosts(tenant_id, page)`、`list_network_segments(tenant_id, page)`，见 `crates/atlas-storage/src/repositories.rs:63,74`），
+> 是 HTTP 层绕开用了 `list_all_hosts`。所以“没隔离”不是缺能力，是缺接线。
+
+#### 5.7.2 决策：保留客户 ID，采用「共享计算 + 每客户库」
+
+**客户 ID 不删。** 它在每客户一个库之后仍然承担三件事：
+
+| 用途 | 说明 |
+|---|---|
+| **路由** | 一个 atlas 进程连多个客户库时选库 —— 与 evidence 的 `Backends::for_tenant()` 同一个东西 |
+| **审计 / 归属** | 库名在 dump、搬库、合并排障时会丢，只有行内的 `tenant_id` 能自证这行属于谁 |
+| **库内过滤** | 物化、图构建、`service_summaries` 都按它 join；storage 层现成 |
+
+这与 evidence 的口径一致（**先例就在本仓**）：每客户独立 PG，`evidence_artifact` 行里照样保留 `tenant_id`。
+
+不选的两条路：
+
+| 不选 | 原因 |
+|---|---|
+| 每客户一套 atlas 进程 + 一个库 | 运维碎片化（与“否决每客户一套 field 栈”同一理由）；BFF 要按客户选 `base_url`；进程与 PG 都 ×客户数 |
+| OML / 网关侧做客户号 → UUID 翻译 | 等于把客户清单塞进数据面，违反“sink 不暴露客户配置”；且 OML 不能读环境变量，多客户要 N 份模型 |
+
+**防御性收益**：每客户一个库让“忘写 `where tenant_id`”的后果从「泄露别家数据」降级成「多看了一眼自己家的」。
+
+#### 5.7.3 目标形态
+
+```
+              ┌─ pg-c-a      （证据索引）
+  evidence ───┤
+  （1 进程）   └─ pg-c-b
+
+              ┌─ pg-c-a-atlas（拓扑库）
+  atlas ──────┤
+  （1 进程）   └─ pg-c-b-atlas
+
+  configs/cells/cells.json —— 唯一客户清单（两个服务共用，不各维护一份）
+```
+
+#### 5.7.4 改动清单（atlas 0.4.x，按依赖顺序）
+
+| # | 在哪 | 改什么 | 为什么 |
+|---|---|---|---|
+| 1 | `atlas-app/src/ingest_http.rs` | `Uuid::parse_str` 失败时改为 `uuid5(NAMESPACE_OID, cust_id)` 派生（解析成功仍直用） | 与现有死值**完全等值**，向后兼容；数据面不必再知道 UUID |
+| 2 | `atlas-domain` / storage | 落 `tenant_ref`：新增小表 `tenant(tenant_id uuid pk, tenant_ref text unique)`，ingest 时 upsert | 反查、审计、BFF 侧对齐（否则只能“猜 UUID”） |
+| 3 | `atlas-app/src/http.rs` | 11 个 `/api/*` 读接口加 `?tenant=<cust_id>`，映射成 `tenant_id` 再进 storage | 把现成的 storage 过滤接上；BFF 注入方式与证据一致 |
+| 4 | `atlas-api/src/query.rs` | `list_all_hosts` 收口 —— 多租户库下不允许无租户调用（只留给 probe / 运维诊断） | 防“以后又有人绕开” |
+| 5 | `atlas-app` | `default_tenant_id_async()` 与 `_probe` 常量租户改为**部署给定**（配置项），不再“拿库里第一个 host 猜” | 单库多租户时代的假设，per-customer 库下会猜错 |
+| 6 | atlas 侧 store 路由 | 按 `tenant` 选 store/pool（同 evidence 的 `Backends`，每 cell 一个 pool） | 一个进程连多库 |
+| 7 | 栈 | `add-customer.sh` 多生成 `pg-<cust>-atlas`；`wist-atlas.toml` 渲染 cells；`<data-root>/<cust>/pg-atlas` | 一个客户清单，两套库 |
+| 8 | 网关 OML | 删掉 `adm.oml` 里的 UUID 死值，改回 `read(tenant_id)` | 数据面只负责“这行属于哪个客户”，不负责编码转换 |
+
+#### 5.7.5 短期兜底（在 1–8 做完之前）
+
+多客户站点（`allowed_tenants.len() > 1`）时，BFF 的 `/api/atlas/*` **直接返回 501 `atlas_not_multi_tenant`**，响应体写明“atlas 尚未按客户隔离”。
+
+理由：现在它是“看着能用、实际跨客户可见”，这种半可用状态比坏掉更危险（与“页面能开但永远 401”同一类问题）。单客户站点保持现状不动。
+
+#### 5.7.6 契约与兼容
+
+| 场景 | 行为 |
+|---|---|
+| 现有站点（数据面直传 UUID） | `parse_str` 成功 → 直用，**零改动** |
+| 现有站点（数据面传 uuid5 死值） | 派生结果与死值等值 → 同上 |
+| 新站点（数据面传客户号 `1000000000000000001` / `c-a`） | 派生 uuid5 → 正常入库 |
+| 单客户站点 | 只有一个 tenant，读接口不带 `?tenant=` 时按该 tenant 兜底（与 evidence 的 `default_tenant` 同口径） |
+
+**必须固化成契约**：`tenant_id = uuid5(NAMESPACE_OID, cust_id)`。写进 atlas 文档 + 一条锁定用例；这个值一旦改，等于把客户换成另一个租户。
+
+#### 5.7.7 验收
+
+1. 两个客户各投一份 DSNAP → 两个 atlas 库各自有 host；`/healthz` 输出 cells。
+2. BFF `?tenant=c-a` 只看到 c-a 的 host/service；`?tenant=c-b` 同理；互不串。
+3. 不带 `?tenant=` → 400 `tenant_required`；`?tenant=<不在白名单>` → 403 `tenant_not_allowed`（与证据同一套语义）。
+4. `tenant(tenant_id, tenant_ref)` 能反查：给一个 UUID 得到客户号，反之亦然。
+5. 单客户站点升级后行为不变（无 `?tenant=` 也能读）。
+
+#### 5.7.8 风险
+
+| 风险 | 处置 |
+|---|---|
+| uuid5 规则被无意改动 → 租户漂移 | 契约 + 锁定用例；派生函数只允许一处实现 |
+| 一个进程 × N 库的连接数 | 每 cell 独立 pool，`max_connections` 默认 4（与 evidence 同口径） |
+| 存量单库数据要迁到 per-customer 库 | 按 `tenant_id` `COPY ... TO` 再导入；probe 租户数据直接丢弃 |
+| `tenant_ref` 唯一约束 | 派生冲突（不同客户号撞同一 UUID）理论不可能，但加 unique 约束让它显式失败 |
+
 ## 6. 加一个客户的完整步骤（三步，缺一不可）
 
 | 步 | 在哪 | 做什么 | 漏了会怎样 |
 |---|---|---|---|
-| 1 | 栈 | 加 PG 服务 + values 里加一条 cell（cust_id / DB URL / 对象目录） | 该客户数据落 default 库（混库） |
+| 1 | 栈 | 加 PG 服务 + values 里加一条 cell（cust_id / DB URL / 对象目录）。atlas 按 §5.7 实施后还要加它的拓扑库 | 该客户数据落 default 库（混库） |
 | 2 | cred | 签发时把该客户加进 `resources.tenants` | 令牌看不到该客户；存储里有数据也读不到 |
 | 3 | 栈 | `gops sys localize && gops run start` | 配置没生效 |
 
@@ -224,6 +325,12 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 - 验收：`?tenant` 不在白名单 → 403；多个可选但不带 → 400；一次进入选客户；
   切客户后证据列表与指标序列集同步变化。
 
+### M1.7：atlas 客户隔离（`wist-atlas` + 栈，见 §5.7）
+
+- 核心：**保留 `tenant_id`**，改成“共享计算 + 每客户拓扑库”；ingest 接受客户号（`uuid5(OID, cust_id)` 派生，与现有死值等值）；读接口加 `?tenant=`；`tenant_ref` 落库可反查。
+- 验收：两客户各写一份 DSNAP → 两个拓扑库各自有 host；BFF 按 `?tenant=` 只看到自己家的；不带 → 400、越界 → 403；单客户站点行为不变。
+- 完成前的兜底：多客户站点 BFF 对 `/api/atlas/*` 返回 501。
+
 ### M2：凭据驱动（**以后再说**）
 
 - `Caller.tenants` 的数据源从配置换成 cred 推送的 `resources["tenants"]`；cred 签发页支持选客户。
@@ -238,12 +345,14 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 | 每客户一套 field 栈（并行） | 已否决（运维碎片化）；0.3.1 的切换式保留给"客户极少但要求完全独立"的场景 |
 | 指标按客户**物理**分库 | 单 VM + `tenant_id` 过滤已满足“先选客户、只看该客户”；物理分离要新加分发器，本期不做 |
 | 跨客户聚合视图 | 本期不做，见决策 3 |
+| 在 OML / 网关侧做“客户号 → atlas UUID”翻译 | OML 不能读环境变量/外部表，多客户要 N 份模型；等于把客户清单塞进数据面 |
+| 删掉 atlas 的 `tenant_id`（假设备份库名已足够） | 库名在 dump/搬库/合并时丢失身份；指标、审计、物化 join 都还依赖它（§5.7.2） |
 
 ## 12. 已知缺口（M1/M1.5 已发版，以下是未覆盖项）
 
 | 缺口 | 现状 | 影响 | 计划 |
 |---|---|---|---|
-| `/api/atlas/*` 不按客户过滤 | BFF 对 atlas 纯透传，`?tenant=` 不参与 | atlas 里的资产能看到**其他客户**的（若 atlas 本身没有按租户隔离） | 跟随 atlas 的租户模型单独设计（M2 之后） |
+| `/api/atlas/*` 不按客户过滤 | BFF 对 atlas 纯透传，`?tenant=` 不参与；atlas 读接口本身也不带租户 | atlas 里的资产能看到**其他客户**的 | 见 §5.7（保留 tenant_id + 每客户库 + 读接口加 `?tenant`）；完成前多客户站点 501 |
 | probe 只探 default 后端 | `wist-evidence` 的探针仍只扫 default cell | 某个客户 PG 写挂了不会主动报错，只能等查询失败 | M2 顺手做：probe 对 `Backends::cells` 逐个跑 |
 | 授权源是配置，不是凭据 | `allowed_tenants` 写在 `field-api.toml` | 无法按“人”细分客户权限；改白名单要改配置并重启 BFF | M2：换成 cred 的 `resources.tenants` |
 | 指标过滤依赖数据带 `tenant_id` | BFF 往每个查询表达式注入 `tenant_id="…"` | 若上报侧没打这个 label，查询结果为空（不会串客户，但会“看不见”） | 部署后用 `GET /api/v1/labels` 确认 label 存在 |
