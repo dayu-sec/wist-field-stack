@@ -38,7 +38,10 @@ services:
     ports:
       - "${PG_BIND_IP}:${EVIDENCE_PG_HOST_PORT}:5432"
     volumes:
-      - evidence-pgdata:/var/lib/postgresql/data
+      # 数据落点：默认是命名卷（= 既有行为）；现场可改成带客户 id 的绝对路径
+      # （`/srv/wist-field/<cust>/pg/evidence`）——容器 source 写卷名或路径时
+      # compose 自己判断，所以同一个变量两种用法。见 sys/setting/vars.yml 的「客户数据落点」。
+      - ${EVIDENCE_PG_DATA:-evidence-pgdata}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${EVIDENCE_PG_USER} -d ${EVIDENCE_PG_DB}"]
       interval: 5s
@@ -57,7 +60,7 @@ services:
     ports:
       - "${PG_BIND_IP}:${ATLAS_PG_HOST_PORT}:5432"
     volumes:
-      - atlas-pgdata:/var/lib/postgresql/data
+      - ${ATLAS_PG_DATA:-atlas-pgdata}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${ATLAS_PG_USER} -d ${ATLAS_PG_DB}"]
       interval: 5s
@@ -87,9 +90,10 @@ services:
       # 密钥真值（DB URL / COS 凭据 / sink token）：`.wist/sec-value.yml`，0640。
       - ./.wist:/sec:ro
       # 正文落本地目录（`objects.kind = file`）：宿主上能直接 `find` / `zstd -dc` 看，重启不丢。
-      # 容器内是 uid 10001，所以这个目录要在 init-stack.sh 里先建好并给到可写（0777，仅开发栈）。
+      # 容器内是 uid 10001，所以这个目录要在 init-stack.sh 里先建好并给到可写（仅开发栈）；
+      # `init-stack.sh` 按 `EVIDENCE_OBJECTS_DIR` 建目录（默认 `./data/evidence-objects`）。
       # 生产切 COS（`objects.kind = s3`）时把这块去掉。
-      - ./data/evidence-objects:/var/lib/wist-evidence/objects
+      - ${EVIDENCE_OBJECTS_DIR:-./data/evidence-objects}:/var/lib/wist-evidence/objects
     healthcheck:
       # 读监听（P0 明文 + 身份头；mTLS 在 P1），走 busybox，不依赖 curl。
       # 端口跟着 `EVIDENCE_READ_PORT` 走。
@@ -137,7 +141,7 @@ services:
     ports:
       - "${VM_BIND_IP}:${VM_HOST_PORT}:8428"
     volumes:
-      - metrics-data:/storage
+      - ${VM_DATA:-metrics-data}:/storage
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8428/health"]
       interval: 30s
@@ -196,7 +200,8 @@ services:
       # 栈渲染的 cred.toml（带 setup code / 收数地址）：覆盖目录里的同名文件，只读。
       - ./configs/field-api/cred.toml:/cred/cred.toml:ro
       # 摘要表（只存 sha256）：验证侧私有状态，重启不丢、不进 PG。
-      - ./data/field-api:/var/lib/wist-field-api
+      # 默认 `./data/field-api`；多客户时改成 `<根>/<cust>/field-api`（与凭据一一对应）。
+      - ${FIELD_API_STORE_DIR:-./data/field-api}:/var/lib/wist-field-api
     healthcheck:
       test: ["CMD", "/bin/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 10s

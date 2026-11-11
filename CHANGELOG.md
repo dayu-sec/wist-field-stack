@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## 0.3.1-alpha · 2026-11-11
+
+- **多客户（切换式）落地**：PG / 指标 / 证据正文 / 凭据摘要表 的落点改成可覆盖变量，
+  默认值**等于既有落点**（命名卷 / `./data`）——升级不会搬数据：
+
+  | 变量 | 默认 | 多客户时 |
+  |---|---|---|
+  | `EVIDENCE_PG_DATA` | `evidence-pgdata`（卷） | `/srv/wist-field/<cust>/pg/evidence` |
+  | `ATLAS_PG_DATA` | `atlas-pgdata`（卷） | `/srv/wist-field/<cust>/pg/atlas` |
+  | `VM_DATA` | `metrics-data`（卷） | `/srv/wist-field/<cust>/vm` |
+  | `EVIDENCE_OBJECTS_DIR` | `./data/evidence-objects` | `/srv/wist-field/<cust>/objects` |
+  | `FIELD_API_STORE_DIR` | `./data/field-api` | `/srv/wist-field/<cust>/field-api` |
+
+  容器 source 写成「卷名或路径」，compose 自己判断；`init-stack.sh` 会提前把路径型的
+  落点建好（这是“docker 把 bind 源建成 root:root”那类问题的前置）。
+- **定位明确：切换式**。一个站点一套栈、同一时刻服务一个客户；多客户 = 换落点 + 换
+  `EVIDENCE_TENANT`。**不做** BFF 多租户授权（`Caller.tenants` / `?tenant=` / 聚合列表），
+  也不做同宿主并行多实例（那需要先把 `name:` / `container_name` / 端口全部参数化）。
+- README 新增「多客户（切换式）」：绑定契约（客户 ID = `EVIDENCE_TENANT` = 目录名 =
+  数据面 `cust_id`）、切换五步、三条硬约束（先与数据面协调 / 先备份 / `perms.allow_external`）。
+- `sys-prj.yml` 补 `perms.allow_external` 的声明示例（数据根在栈外时必须开）。
+
 ## 0.3.0-alpha · 2026-11-11
 
 **结构性变更：`configs/` 从「种子拷贝」改为「模板渲染」**（与 `wist-gateway-stack` /

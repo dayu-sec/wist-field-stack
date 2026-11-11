@@ -91,3 +91,13 @@ system:
   value: ''
 - name: TZ
   value: Asia/Shanghai
+- name: EVIDENCE_PG_DATA
+  value: evidence-pgdata
+- name: ATLAS_PG_DATA
+  value: atlas-pgdata
+- name: VM_DATA
+  value: metrics-data
+- name: EVIDENCE_OBJECTS_DIR
+  value: ./data/evidence-objects
+- name: FIELD_API_STORE_DIR
+  value: ./data/field-api

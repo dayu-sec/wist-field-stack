@@ -2,6 +2,19 @@ test_envs:
   dep_root: ''
   deps: []
 
+# 宿主 bind 挂载的属主/权限（`gops sys perms`，gops >= 2.7）：
+#
+# 缺省 = 从 compose 派生（服务 `user:` + `volumes.read_only`），不需要配置。
+# **多客户部署时**（数据根在栈外，如 `/srv/wist-field/<cust>/...`）需要放开：
+# `gops sys perms` 默认只管系统根以内的 bind 源，栈外路径要显式声明。
+#
+# perms:
+#   allow_external:
+#     - /srv/wist-field
+#
+# 不开这一条的症状：`gops sys perms --apply` 对这几个目录一律 `Operation not permitted`
+# （它压根没把它们列进待对齐清单），容器随后因读不到/写不进数据目录而报错。
+
 # `gops sys package` 打包时排除的路径（相对系统根）。
 #
 # 不变式 `ignore ⊆ protect`：不进交付包的按定义就不是包内容，升级当然也不该碰它。

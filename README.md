@@ -311,6 +311,64 @@ retention_hours = 24     # 能活多久；实际每小时扫一次
 > —— 路由 → 序列化 → 对象 → 索引，而不只是「进程活着」。写端口的连通性也包含在内。
 > 需要 `wist-evidence ≥ v0.1.12`（尚未发布）。
 
+## 多客户（切换式）
+
+**一个站点跑一套栈、同一时刻服务一个客户。** 多客户 = 多份数据落点 + 切指针，
+不是多套栈、也不是共享存储上的多租户（BFF 不做多租户授权，`EVIDENCE_TENANT` 仍是单值）。
+
+### 数据落点（默认 = 既有行为）
+
+| 数据 | 变量 | 默认 | 多客户时 |
+|---|---|---|---|
+| evidence 索引 | `EVIDENCE_PG_DATA` | 命名卷 `evidence-pgdata` | `/srv/wist-field/<cust>/pg/evidence` |
+| atlas 索引 | `ATLAS_PG_DATA` | 命名卷 `atlas-pgdata` | `/srv/wist-field/<cust>/pg/atlas` |
+| 运行指标 | `VM_DATA` | 命名卷 `metrics-data` | `/srv/wist-field/<cust>/vm` |
+| 证据正文 | `EVIDENCE_OBJECTS_DIR` | `./data/evidence-objects` | `/srv/wist-field/<cust>/objects` |
+| 凭据摘要表 | `FIELD_API_STORE_DIR` | `./data/field-api` | `/srv/wist-field/<cust>/field-api` |
+
+默认值故意保持原样：**升级不会搬数据**。容器 source 写卷名还是路径由 compose 自己判断，
+所以同一个变量两种用法。
+
+### 绑定契约：三处必须同名
+
+```
+客户 ID == values 的 EVIDENCE_TENANT == 数据路径里的目录名 == 数据面写入 payload 的 cust_id
+```
+
+前三个在栈内；**第四个不在**。切换后列表还是空，最常见的原因就是数据面还在投旧 cust_id。
+
+### 切一个客户
+
+```yaml
+# values/<系统>/sys_value.yml
+EVIDENCE_TENANT: acme
+EVIDENCE_PG_DATA: /srv/wist-field/acme/pg/evidence
+ATLAS_PG_DATA: /srv/wist-field/acme/pg/atlas
+VM_DATA: /srv/wist-field/acme/vm
+EVIDENCE_OBJECTS_DIR: /srv/wist-field/acme/objects
+FIELD_API_STORE_DIR: /srv/wist-field/acme/field-api
+```
+
+```bash
+mkdir -p /srv/wist-field/acme/{pg/evidence,pg/atlas,vm,objects,field-api}
+gops sys localize     # 渲染 configs（DB URL / 对象路径 / tenant 一起变）
+gops run start        # stop -> up -d，让 PG 挂到新目录
+```
+
+切回默认：把上面 6 个键从 `values/` 删掉（或注释），再 `gops sys localize && gops run start` ——
+原来的命名卷还在，数据不丢。
+
+### 三条硬约束
+
+1. **先与数据面协调**：暂停投递或把它改成新客户的 `cust_id`。切换不是纯本机操作。
+2. **切换前备份**：这五个目录**不在** `sys-prj.yml: backup` 里（它只收 `configs` / `.wist`）。
+   先 `pg_dump` 或停容器做目录快照，否则切回来是空库。
+3. **数据根在栈外时**，`sys-prj.yml` 要加 `perms.allow_external: [/srv/wist-field]`，
+   否则 `gops sys perms --apply` 不会管那几个目录（容器随后写不进去）。
+
+> 为什么不做并行多实例：同一宿主上两套栈的 `name:` 相同会让**卷共用**（数据串库），
+> 要并行必须先把 `name:` / `container_name` / 宿主端口全部参数化。切换式不需要这些。
+
 ## 与其它栈的关系
 
 - `atlas` 也可以继续由 `wist-atlas-stack` 单独跑；本栈内置一份是为了**一个入口**。

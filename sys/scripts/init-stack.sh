@@ -48,16 +48,50 @@ align_ro_perms() {
 
 # 1) 运行态目录（栈根）
 mkdir -p "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/web" "${STACK_ROOT}/.wist"
+# 把“容器 source”解析成宿主绝对路径：默认值是命名卷名（如 `evidence-pgdata`），
+# 不归本脚本管；只有形如路径（含 `/`）的才需要提前建好。
+resolve_data_path() {
+  local value="$1"
+  case "${value}" in
+    */*) ;;    # 路径（含 `./data/...` 与 `/srv/...`）
+    *) printf ''; return 0 ;;   # 命名卷：docker 自己管
+  esac
+  case "${value}" in
+    /*) printf '%s' "${value}" ;;
+    *) printf '%s' "${STACK_ROOT}/${value#./}" ;;
+  esac
+}
+
+# 数据落点：**必须先建**，否则 docker 会把缺失的 bind 源建成 root:root，
+# 之后部署账号既 chown 不动也 chmod 不动（`gops sys perms --apply` 会整片 EPERM）。
+# 默认值是命名卷（= 既有行为），所以这段对既有站点什么都不做。
+prepare_data_dir() {
+  local label="$1" value="$2" path
+  path="$(resolve_data_path "${value}")"
+  [ -n "${path}" ] || return 0
+  if mkdir -p "${path}" 2>/dev/null; then
+    note "data dir (${label}): ${path}"
+  else
+    note "⚠ 建不了 ${label} 的目录：${path}（需 root 或换一个部署账号可写的路径）"
+    return 1
+  fi
+}
+
+prepare_data_dir "evidence-pg" "${EVIDENCE_PG_DATA:-evidence-pgdata}" || true
+prepare_data_dir "atlas-pg" "${ATLAS_PG_DATA:-atlas-pgdata}" || true
+prepare_data_dir "metrics" "${VM_DATA:-metrics-data}" || true
+
 # 证据正文（`objects.kind = file`）：宿主上可直接看。容器内是 uid 10001，
 # 而部署账号不是 10001，所以这里给到 0777（仅开发/测试栈；生产用 COS）。
-# 必须先建：否则 compose 会自己建一个 root:root 的目录，容器写不进去。
-mkdir -p "${STACK_ROOT}/data/evidence-objects"
-chmod 0777 "${STACK_ROOT}/data/evidence-objects"
+EVIDENCE_OBJECTS_ABS="$(resolve_data_path "${EVIDENCE_OBJECTS_DIR:-./data/evidence-objects}")"
+mkdir -p "${EVIDENCE_OBJECTS_ABS}"
+chmod 0777 "${EVIDENCE_OBJECTS_ABS}"
 # 凭据摘要表（`store_path`）：只存 sha256，验证侧私有状态。
 # 容器内是 uid 10001，与证据正文同理给到 0777（仅开发/测试栈）。
-mkdir -p "${STACK_ROOT}/data/field-api"
-chmod 0777 "${STACK_ROOT}/data/field-api"
-note "runtime dirs: ${STACK_ROOT}/configs, ${STACK_ROOT}/.wist, ${STACK_ROOT}/data/{evidence-objects,field-api}"
+FIELD_API_STORE_ABS="$(resolve_data_path "${FIELD_API_STORE_DIR:-./data/field-api}")"
+mkdir -p "${FIELD_API_STORE_ABS}"
+chmod 0777 "${FIELD_API_STORE_ABS}"
+note "runtime dirs: ${STACK_ROOT}/configs, ${STACK_ROOT}/.wist, ${EVIDENCE_OBJECTS_ABS}, ${FIELD_API_STORE_ABS}"
 
 # 2) configs/ 不在这里：它是 `sys/configs/*.tpl` 的渲染产物（`gx run localize` 的 gx.tpl）。
 #    见文件头 —— 一次性拷贝就是 0.2.x 里“升了栈、配置还是旧的”的根因。
