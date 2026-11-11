@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 0.4.0-alpha · 2026-11-11
+
+**多客户 data-field**（一栈服务多客户、数据物理隔离、使用前先选客户）。
+
+### 新增
+
+- **`sys/scripts/add-customer.sh <cust_id>`**：加一个客户的**一条命令**——
+  建 `<FIELD_DATA_ROOT>/<cust>/{pg,objects}`、写该客户的 DB URL 密钥、维护客户清单
+  `configs/cells/cells.json`、并从清单全量生成 compose 片段 `configs/cells/compose.yml`。
+  客户清单放 `configs/`（protect 区）而不是 `sys/`：**升级不覆盖**。
+- **compose `include`**：主 compose 引入 `./configs/cells/compose.yml`，所以客户的 PG
+  仍归 `gops run start` 管（不是游离的 `docker run`）。骨架由 `init-stack.sh` 兜底创建。
+- **`FIELD_DATA_ROOT`**（默认 `./customers`）：多客户数据根，容器内挂到 `/data-customers`。
+- 证据服务的 `[[storage.cell]]` 由 `init-field-config.sh` 从 cells.json 渲染；
+  BFF 的 `allowed_tenants` 同源渲染（避免两份客户名单分叉）。
+
+### 跟版
+
+`wist-evidence 0.2.0-alpha`（多客户存储路由）、`wist-field-api 0.7.0-alpha`
+（`allowed_tenants` / `/api/session` / 指标按客户过滤）、`wist-field-web 0.2.8-alpha`（选客户）。
+
+### 升级注意
+
+- **顺序**：先升 evidence（0.2.0 之前的镜像会**静默忽略** `[[storage.cell]]`，
+  数据全落 default —— 不报错、不丢数据，但也不隔离）。
+- 单客户站点：不建 `cells.json` → 无 `storage.cell`、`allowed_tenants = []`，
+  行为与 0.3.x 完全一致。
+- 多客户站点：客户清单变了必须 `gops sys localize`（重渲 evidence/BFF 配置）再 `gops run start`。
+- 指标按客户隔离依赖数据里的 `tenant_id` label（网关绑定写入）；部署后先验一次
+  `curl -s http://metrics:8428/api/v1/labels | grep tenant_id`。
+- 已知缺口：`/api/atlas/*` 暂不按客户过滤（atlas 租户是独立 UUID）。
+
+
 ## 0.3.1-alpha · 2026-11-11
 
 - **多客户（切换式）落地**：PG / 指标 / 证据正文 / 凭据摘要表 的落点改成可覆盖变量，

@@ -1,0 +1,12 @@
+# 每个客户的 postgres（由 `sys/scripts/add-customer.sh` 全量重写，不要手改）。
+#
+# 为什么放在 `configs/` 而不是 `sys/`：客户清单是**站点现场态**。
+#   `sys/` 整个目录在升级时会被包覆盖 —— 把客户定义写进去，一升级就全没了；
+#   `configs/` 在 `sys-prj.yml` 的 `protect` 里，升级不动。
+#
+# 为什么用 compose 的 `include`：客户的 PG 仍然归编排管（`gops run start` 一起拉起，
+#   网络/健康检查/重启策略一致），而不是脚本自己 `docker run` 出一批游离容器。
+#
+# 没有客户时保持空（`services: {}`）—— 文件必须存在，否则 include 会报
+# `no such file or directory`。`init-stack.sh` 会在 localize 时兜底创建。
+services: {}

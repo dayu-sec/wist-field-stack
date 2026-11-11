@@ -46,6 +46,16 @@ align_ro_perms() {
   return 1
 }
 
+# 1′) 多客户的 compose 片段：主 compose 用 `include` 引入它，**文件必须存在**
+#     （否则 `docker compose` 直接报 `no such file or directory`）。
+#     首次从入库骨架（`services: {}`）拷一份；之后是现场态，升级不覆盖
+#     （`configs/` 在 `sys-prj.yml: protect` 里）。客户增删走 `add-customer.sh`。
+mkdir -p "${STACK_ROOT}/configs/cells"
+if [ ! -f "${STACK_ROOT}/configs/cells/compose.yml" ]; then
+  cp "${STACK_ROOT}/sys/configs/cells/compose.yml" "${STACK_ROOT}/configs/cells/compose.yml"
+  note "cells compose 骨架：${STACK_ROOT}/configs/cells/compose.yml"
+fi
+
 # 1) 运行态目录（栈根）
 mkdir -p "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/web" "${STACK_ROOT}/.wist"
 # 把“容器 source”解析成宿主绝对路径：默认值是命名卷名（如 `evidence-pgdata`），

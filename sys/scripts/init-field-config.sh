@@ -88,6 +88,33 @@ text_like() {
 
 EVIDENCE_READ_PORT="$(port_like EVIDENCE_READ_PORT "$(need EVIDENCE_READ_PORT)")"
 EVIDENCE_TENANT="$(text_like EVIDENCE_TENANT "$(need EVIDENCE_TENANT)")"
+
+# 多客户：BFF 的可选客户集合来自客户清单（与 evidence 的 cells 同源，避免两份名单分叉）。
+EVIDENCE_ALLOWED_TENANTS="[]"
+if [ -f "${STACK_ROOT}/configs/cells/cells.json" ]; then
+  EVIDENCE_ALLOWED_TENANTS="$(python3 - "${STACK_ROOT}/configs/cells/cells.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    cells = json.load(handle)
+print(json.dumps([cell["cust_id"] for cell in cells if cell.get("cust_id")], ensure_ascii=False))
+PY
+)"
+fi
+# 模板里 `allowed_tenants = [{{{...}}}]` 要的是逗号分隔的带引号字面量；空清单 → `[]`。
+EVIDENCE_ALLOWED_LITERAL=""
+if [ "${EVIDENCE_ALLOWED_TENANTS}" != "[]" ]; then
+  EVIDENCE_ALLOWED_LITERAL="$(python3 - "${EVIDENCE_ALLOWED_TENANTS}" <<'PY'
+import json
+import sys
+
+print(", ".join(json.dumps(item, ensure_ascii=False) for item in json.loads(sys.argv[1])))
+PY
+)"
+fi
+# value.json 里这一项是**字符串**（模板用三花括号原样输出），所以要按 JSON 规则转义双引号。
+EVIDENCE_ALLOWED_LITERAL_JSON="${EVIDENCE_ALLOWED_LITERAL//\"/\\\"}"
 EVIDENCE_SINK_HOST_PORT="$(port_like EVIDENCE_SINK_HOST_PORT "$(need EVIDENCE_SINK_HOST_PORT)")"
 EVIDENCE_SINK_PUBLIC_HOST="$(host_like EVIDENCE_SINK_PUBLIC_HOST "$(need EVIDENCE_SINK_PUBLIC_HOST)")"
 ATLAS_INGEST_HOST_PORT="$(port_like ATLAS_INGEST_HOST_PORT "$(need ATLAS_INGEST_HOST_PORT)")"
@@ -152,6 +179,7 @@ write_json "${FIELD_API_DIR}/field-api.value.json" cat <<EOF
 {
   "evidence_read_port": ${EVIDENCE_READ_PORT},
   "evidence_tenant": "${EVIDENCE_TENANT}",
+  "evidence_allowed_tenants": "${EVIDENCE_ALLOWED_LITERAL_JSON}",
   "evidence_sink_public_host": "${EVIDENCE_SINK_PUBLIC_HOST}",
   "evidence_sink_host_port": ${EVIDENCE_SINK_HOST_PORT},
   "atlas_ingest_public_host": "${ATLAS_INGEST_PUBLIC_HOST}",
@@ -178,8 +206,39 @@ write_json "${FIELD_API_DIR}/cred.value.json" cat <<EOF
 EOF
 
 # ③ 证据服务：读监听端口（与 BFF / compose 健康检查同一个来源）
+# ③ 证据服务：读监听端口（与 BFF / compose 健康检查同一个来源）
+#
+# 多客户：把 `configs/cells/cells.json`（客户清单，由 `add-customer.sh` 维护）
+# 转成渲染值 `evidence_cells`，模板里用 `{{#each}}` 展开成 `[[storage.cell]]`。
+# 清单不存在 / 为空 = 单客户部署（配置里没有 cells 段），行为与 0.3.x 一致。
+CELLS_JSON="${STACK_ROOT}/configs/cells/cells.json"
+EVIDENCE_CELLS_JSON="[]"
+if [ -f "${CELLS_JSON}" ]; then
+  EVIDENCE_CELLS_JSON="$(python3 - "${CELLS_JSON}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    cells = json.load(handle)
+if not isinstance(cells, list):
+    cells = []
+# 只保留渲染需要的三个字段（清单里还有给脚本自己用的 host_dir / pg_port）
+keep = [
+    {
+        "cust_id": cell["cust_id"],
+        "database_url": cell["database_url"],
+        "objects_dir": cell["objects_dir"],
+    }
+    for cell in cells
+]
+print(json.dumps(keep, ensure_ascii=False))
+PY
+)"
+fi
+
 write_json "${EVIDENCE_DIR}/wist-evidence.value.json" cat <<EOF
 {
-  "evidence_read_port": ${EVIDENCE_READ_PORT}
+  "evidence_read_port": ${EVIDENCE_READ_PORT},
+  "evidence_cells": ${EVIDENCE_CELLS_JSON}
 }
 EOF

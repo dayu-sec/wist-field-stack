@@ -2,11 +2,11 @@ system:
 - name: FIELD_REGISTRY
   value: ghcr.io/dayu-sec
 - name: FIELD_API_IMAGE_TAG
-  value: v0.6.7-alpha
+  value: v0.7.0-alpha
 - name: FIELD_WEB_IMAGE_TAG
-  value: v0.2.7-alpha
+  value: v0.2.8-alpha
 - name: EVIDENCE_IMAGE_TAG
-  value: v0.1.15-alpha
+  value: v0.2.0-alpha
 - name: ATLAS_REGISTRY
   value: ghcr.io/dayu-sec
 - name: ATLAS_IMAGE_TAG
@@ -101,3 +101,5 @@ system:
   value: ./data/evidence-objects
 - name: FIELD_API_STORE_DIR
   value: ./data/field-api
+- name: FIELD_DATA_ROOT
+  value: ./customers

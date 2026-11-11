@@ -55,3 +55,24 @@ bucket = "wist-evidence"
 # region = "${SEC_COS_REGION}"
 # access_key = "${SEC_COS_SECRET_ID}"
 # secret_key = "${SEC_COS_SECRET_KEY}"
+
+# ── 多客户：客户级存储后端（`[[storage.cell]]`）──────────────────────────
+#
+# 客户清单的真相是 `configs/cells/cells.json`（`sys/scripts/add-customer.sh` 维护），
+# 由 `init-field-config.sh` 转成渲染值 `evidence_cells`。**没有客户时这一段渲染为空** ——
+# 单客户站点的配置与 0.3.x 完全一致。
+#
+# 每个 cell 必须自带 index 与 objects（不继承 default）：静默继承会把两个客户写进同一个库。
+{{#each evidence_cells}}
+
+[[storage.cell]]
+cust_id = "{{cust_id}}"
+
+[storage.cell.index]
+kind = "postgres"
+database_url = "{{database_url}}"
+
+[storage.cell.objects]
+kind = "file"
+dir = "{{objects_dir}}"
+{{/each}}

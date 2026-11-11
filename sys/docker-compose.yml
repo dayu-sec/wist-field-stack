@@ -1,3 +1,11 @@
+# 多客户：每客户一个 postgres 的片段（现场态，`configs/` 在 protect 里，升级不覆盖）。
+# 文件不存在时 compose 会直接报错，所以它必须先在 —— 由 `init-stack.sh` 兜底创建骨架，
+# 客户增删用 `sys/scripts/add-customer.sh`（它会全量重写这个文件与 cells.json）。
+include:
+  # 相对 **project directory**（栈根）解析，不是相对本文件所在目录。
+  # 所以手写 `docker compose` 不带 `--project-directory <栈根>` 时会指错（会去读 sys/configs）。
+  - ./configs/cells/compose.yml
+
 # wist-field-stack — 计算区「数据场 · 现场视图」（证据 / 资产拓扑 / 运行指标 / 设备状态）
 #
 # 角色分工（浏览器只接触 web）：
@@ -89,6 +97,10 @@ services:
       - ./configs/evidence:/etc/wist-evidence:ro
       # 密钥真值（DB URL / COS 凭据 / sink token）：`.wist/sec-value.yml`，0640。
       - ./.wist:/sec:ro
+      # 多客户的证据正文根：宿主 `${FIELD_DATA_ROOT}/<cust>/objects` 挂到容器内 `/data-customers`
+      # （配置里每个 cell 的 `objects.dir` 写 `/data-customers/<cust>/objects`）。
+      # 单客户站点不用这个目录，挂空目录也不影响。
+      - ${FIELD_DATA_ROOT:-./customers}:/data-customers
       # 正文落本地目录（`objects.kind = file`）：宿主上能直接 `find` / `zstd -dc` 看，重启不丢。
       # 容器内是 uid 10001，所以这个目录要在 init-stack.sh 里先建好并给到可写（仅开发栈）；
       # `init-stack.sh` 按 `EVIDENCE_OBJECTS_DIR` 建目录（默认 `./data/evidence-objects`）。
