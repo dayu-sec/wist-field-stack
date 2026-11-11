@@ -22,3 +22,6 @@ sys/*/mods
 
 # 证据正文（objects.kind = file 的落点）
 /data/
+
+# 客户数据根（`FIELD_DATA_ROOT` 默认 `./customers`：每客户 pg/ 与 objects/）
+/customers/
