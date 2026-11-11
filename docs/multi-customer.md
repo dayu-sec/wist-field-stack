@@ -1,7 +1,8 @@
 # 多客户 data-field 方案（供 review）
 
-> 状态：**设计稿，未实施**。日期 2026-11-11。涉及仓：`wist-evidence` / `wist-field-api` /
-> `wist-cred` / `wist-field-web` / `wist-field-stack`。
+> 状态：**M1 + M1.5 已实施**（`wist-evidence` 0.2.0 / `wist-field-api` 0.7.0 / `wist-field-web` 0.2.8 /
+> `wist-field-stack` 0.4.x）；M2（凭据驱动授权）与 atlas 隔离仍未做，见 §11 已知缺口。
+> 日期 2026-11-11。涉及仓：`wist-evidence` / `wist-field-api` / `wist-cred` / `wist-field-web` / `wist-field-stack`。
 
 ## 0. 一句话
 
@@ -18,7 +19,7 @@
 | 证据（evidence） | ✅ M1 | 客户调查报告，天然按 `cust_id` 组织，是这次的主体 |
 | 运行指标（VM） | ✅ M1.5 查询隔离 | 指标带 `tenant_id` label（来源：网关 `bind-tenant` → `WP_GLOBAL_TAGS`），按客户过滤即可（§5.6） |
 | 选客户的授权来源 | M1.5 配置白名单 / M2 凭据 | **本期不动 `wist-cred`**：先让 BFF 从配置里的 `allowed_tenants` 取；以后再换成凭据的 `resources.tenants` |
-| 资产拓扑（atlas） | ❌ 后续 | 它有独立的租户模型（UUID），与 `cust_id` 不同源，BFF 目前纯透传 |
+| 资产拓扑（atlas） | ❌ 后续（**已知缺口**） | 它有独立的租户模型（UUID），与 `cust_id` 不同源，BFF 目前纯透传 —— `/api/atlas/*` **不按客户过滤** |
 | 凭据摘要表 | ❌ 不分 | 它是"人"的授权表，按客户分反而查不到自己 |
 
 ## 2. 决定架构的四条事实（都已核实）
@@ -51,7 +52,7 @@
 ```
 
 - **写侧**没有任何客户信息可依赖，只看 `cust_id`：这就是为什么分流必须在服务端。
-- **读侧**的客户来自**凭据**（`wist-cred` 的 `resources.tenants`），`?tenant=` 只用来"选"，不能用来"授"。
+- **读侧**的客户由 BFF 校验：**本期授权源是配置 `allowed_tenants`**（不碰 `wist-cred`），`?tenant=` 只用来"选"，不能用来"授"；校验通过后 BFF 用自己解析出的 tenant 去读。M2 再把授权源换成凭据的 `resources.tenants`（校验点不变）。
 
 ## 5. 详细设计
 
@@ -87,7 +88,7 @@ objects = { kind = "file", dir = "/srv/wist-field/1000.../objects" }
 | 启动 | 为 default + 每个 cell 各建一个 `(Index, ObjectStore)`，放进 `StorageRouter { default, cells: HashMap<String, Backend> }` |
 | 写 | `write_records` 逐条按 `record.cust_id` 选后端（批内可能跨客户，逐条选） |
 | 读 | 按 `x-evidence-tenant` 选后端（读口本来就带这个头，天然可用） |
-| probe | 每个后端各跑一份（保留租户 `_probe` 落在各自库里），这样"某个客户的库挂了"能单独发现 |
+| probe | **现状：仍只探 default 后端**（每 cell 一份尚未实现）。目标：每个后端各跑一份（租户 `_probe` 落在各自库里），这样"某个客户的库挂了"能单独发现 |
 | 连接池 | 每个 cell 一个 pool，`max_connections` 默认 4（20 个客户 × 4 = 80，仍在 PG 默认 100 之下） |
 | 未匹配 cust_id | 落 default + **WARN 日志带 `cust_id`**（不能丢数据；见决策 1） |
 | 健康 | `/healthz` 增加 `cells: [{cust_id, index_ok, objects_ok}]` |
@@ -105,7 +106,7 @@ objects = { kind = "file", dir = "/srv/wist-field/1000.../objects" }
 | 读路径 | 固定 `x-evidence-tenant: self.tenant` | 按本次请求选定的 tenant |
 | `?tenant=` | 被 `strip_tenant` 丢弃 | **校验后使用**：不在可选集合 → 403 `tenant_not_allowed`（不泄露存在性） |
 | 选择语义 | — | 见决策 2：多个可选但不带 `?tenant=` → 400 `tenant_required`；只有一个 → 自动 |
-| 新端点 | — | `GET /api/session` → `{subject, roles, tenants, default_tenant}`（web 用它渲染选择器） |
+| 新端点 | — | `GET /api/session` → `{subject, roles, tenants}`（web 用它渲染选择器）。**故意不返回 `default_tenant`**：前端不得根据它"猜"客户，否则多客户站点会静默落错库（决策 4） |
 | 覆盖范围 | `list_evidence` | **所有**读路径：`list` / `get` / `content` / `presign`（漏一个就是越权） |
 
 ### 5.3 `wist-cred`：签发（**本期不做**）
@@ -203,7 +204,7 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 | 2 | 多客户令牌**不带 `?tenant=`** 时 | **400 `tenant_required`**（符合"先选客户"；避免"以为看全了其实只看了第一个"） |
 | 3 | 要不要"跨客户聚合列表" | **本期不做**（offset 游标要先变成 BFF 复合游标，前端也要加列；先按客户分开） |
 | 4 | 既没配 `allowed_tenants` 也没 `default_tenant` 时 | 按单客户站点处理（行为与 0.3.x 一致）；如果连接索都不得不出来 → 启动日志 WARN，不阻止启动 |
-| 5 | probe 每 cell 各跑一份 | **要**（否则某个客户的库写挂了不会报警）；成本 ×客户数，间隔可调 |
+| 5 | probe 每 cell 各跑一份 | **要**（否则某个客户的库写挂了不会报警）；成本 ×客户数，间隔可调。**现状：未做**，仍只探 default（见 §12） |
 | 6 | PG 形态 | **每客户独立实例**（真隔离、备份/恢复按客户）；不选“同实例多 database” |
 | 7 | 指标要不要**物理**分库（每客户一台 VM） | **本期不做**：单 VM + `tenant_id` 过滤已满足“选了客户只看该客户”；物理分离要新加分发器，收益只有“按客户独立留存/删除” |
 | 8 | 选客户的授权来源（本期） | **BFF 配置 `allowed_tenants`**（不碰 cred）；M2 再换成凭据。风险点：它无法按“人”细分客户权限，只适合内部人手少、相互信任的站点 |
@@ -237,3 +238,12 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 | 每客户一套 field 栈（并行） | 已否决（运维碎片化）；0.3.1 的切换式保留给"客户极少但要求完全独立"的场景 |
 | 指标按客户**物理**分库 | 单 VM + `tenant_id` 过滤已满足“先选客户、只看该客户”；物理分离要新加分发器，本期不做 |
 | 跨客户聚合视图 | 本期不做，见决策 3 |
+
+## 12. 已知缺口（M1/M1.5 已发版，以下是未覆盖项）
+
+| 缺口 | 现状 | 影响 | 计划 |
+|---|---|---|---|
+| `/api/atlas/*` 不按客户过滤 | BFF 对 atlas 纯透传，`?tenant=` 不参与 | atlas 里的资产能看到**其他客户**的（若 atlas 本身没有按租户隔离） | 跟随 atlas 的租户模型单独设计（M2 之后） |
+| probe 只探 default 后端 | `wist-evidence` 的探针仍只扫 default cell | 某个客户 PG 写挂了不会主动报错，只能等查询失败 | M2 顺手做：probe 对 `Backends::cells` 逐个跑 |
+| 授权源是配置，不是凭据 | `allowed_tenants` 写在 `field-api.toml` | 无法按“人”细分客户权限；改白名单要改配置并重启 BFF | M2：换成 cred 的 `resources.tenants` |
+| 指标过滤依赖数据带 `tenant_id` | BFF 往每个查询表达式注入 `tenant_id="…"` | 若上报侧没打这个 label，查询结果为空（不会串客户，但会“看不见”） | 部署后用 `GET /api/v1/labels` 确认 label 存在 |
