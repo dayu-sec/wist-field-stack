@@ -180,7 +180,7 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 |---|---|
 | atlas 的租户是 **UUID**，不是客户号 | `crates/atlas-domain/src/common.rs:6` `pub struct TenantId(pub Uuid)` |
 | 写入口把 `cust_id` **直接当 UUID 解析**，不是 UUID 就 400 | `crates/atlas-app/src/ingest_http.rs:136`，错误文案：`cust_id \`…\` is not a UUID; it is the atlas tenant id, not the external tenant ref` |
-| 唯一的“客户号 → UUID”翻译，是**数据面 OML 里一行死值** | `wist-gateway-stack/sys/data-plane/models/oml/agent_uplink/agent_uplink_obs_dsnap/adm.oml:27`：`uuid5(NAMESPACE_OID, "1000000000000000001") = 40a59f7d-df92-5958-adef-61def418d257`（已验算），注释自认“换客户必须同步改这里” |
+| 唯一的“客户号 → UUID”翻译，是**数据面 OML 里一行死值** | `wist-gateway-stack/sys/data-plane/models/oml/agent_uplink/agent_uplink_obs_dsnap/adm.oml:27`：`uuid5(NAMESPACE_OID, "1000000000000000001") = 40a59f7d-df92-5958-adef-61def418d257`（已验算），注释自认“换客户必须同步改这里”。**这个规则我们明确不继承**，见 §5.7.9 |
 | 原始客户串 `tenant_ref` 解析进来但**不落库** | `crates/atlas-domain/src/ingest.rs:43`（`alias = "tenant_ref"`）→ 只存 `tenant_id`，无映射表 → 事后无法反查“这个 UUID 是哪个客户” |
 | 读接口**完全不带租户** | `/api/hosts` → `list_all_hosts`（`crates/atlas-api/src/query.rs:232`）；`/api/services` → `default_tenant_id_async()`（库里第一个 host 的租户，`crates/atlas-app/src/http.rs:741`）；11 个 `/api/*` 读接口没有一个接受 `?tenant=`，也没有 `/api/tenants`；`wist-atlas-web` 源码里 `tenant` 零命中 |
 
@@ -213,29 +213,35 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 #### 5.7.3 目标形态
 
 ```
-              ┌─ pg-c-a      （证据索引）
+                     cells.json（唯一客户清单，两个服务共用）
+        ┌────────────────────────────────────────────────────┐
+        │ c-a → { evidence_db, atlas_db, atlas_tenant_id }   │
+        │ c-b → { evidence_db, atlas_db, atlas_tenant_id }   │
+        └────────────────────────────────────────────────────┘
+
+              ┌─ pg-c-a       （证据索引）
   evidence ───┤
   （1 进程）   └─ pg-c-b
 
-              ┌─ pg-c-a-atlas（拓扑库）
+              ┌─ pg-c-a-atlas  （拓扑库，内含 tenant(c-a, uuid)）
   atlas ──────┤
   （1 进程）   └─ pg-c-b-atlas
-
-  configs/cells/cells.json —— 唯一客户清单（两个服务共用，不各维护一份）
 ```
+
+`atlas_tenant_id` 由注册时生成并固化（见 §5.7.9）；atlas 只按 `cust_id` 查这张表，不在运行时计算。
 
 #### 5.7.4 改动清单（atlas 0.4.x，按依赖顺序）
 
 | # | 在哪 | 改什么 | 为什么 |
 |---|---|---|---|
-| 1 | `atlas-app/src/ingest_http.rs` | `Uuid::parse_str` 失败时改为 `uuid5(NAMESPACE_OID, cust_id)` 派生（解析成功仍直用） | 与现有死值**完全等值**，向后兼容；数据面不必再知道 UUID |
-| 2 | `atlas-domain` / storage | 落 `tenant_ref`：新增小表 `tenant(tenant_id uuid pk, tenant_ref text unique)`，ingest 时 upsert | 反查、审计、BFF 侧对齐（否则只能“猜 UUID”） |
+| 1 | `atlas-app/src/ingest_http.rs` | 不再用 `Uuid::parse_str` 硬解析：改为**查路由表** —— `cust_id` 未登记 → 400 `tenant_unregistered`；登记了就用该客户固定的 `tenant_id`。兼容期：`cust_id` 本身是合法 UUID 且已登记时照旧直用 | 数据面只发客户号；**不做运行时派生**（原因见 §5.7.9） |
+| 2 | `atlas-domain` / storage | 新增 `tenant(tenant_id uuid pk, tenant_ref text unique)` 小表，**在注册时写入**（`add-customer.sh` / 迁移种子），ingest 只读不写 | 反查、审计；同时充当“已登记客户”的白名单 |
 | 3 | `atlas-app/src/http.rs` | 11 个 `/api/*` 读接口加 `?tenant=<cust_id>`，映射成 `tenant_id` 再进 storage | 把现成的 storage 过滤接上；BFF 注入方式与证据一致 |
 | 4 | `atlas-api/src/query.rs` | `list_all_hosts` 收口 —— 多租户库下不允许无租户调用（只留给 probe / 运维诊断） | 防“以后又有人绕开” |
 | 5 | `atlas-app` | `default_tenant_id_async()` 与 `_probe` 常量租户改为**部署给定**（配置项），不再“拿库里第一个 host 猜” | 单库多租户时代的假设，per-customer 库下会猜错 |
 | 6 | atlas 侧 store 路由 | 按 `tenant` 选 store/pool（同 evidence 的 `Backends`，每 cell 一个 pool） | 一个进程连多库 |
-| 7 | 栈 | `add-customer.sh` 多生成 `pg-<cust>-atlas`；`wist-atlas.toml` 渲染 cells；`<data-root>/<cust>/pg-atlas` | 一个客户清单，两套库 |
-| 8 | 网关 OML | 删掉 `adm.oml` 里的 UUID 死值，改回 `read(tenant_id)` | 数据面只负责“这行属于哪个客户”，不负责编码转换 |
+| 7 | 栈 | `add-customer.sh`：生成 `atlas_tenant_id`（写进 `cells.json`，之后**永不重算**）、建 `pg-<cust>-atlas`、在该库落 `tenant` 行；`wist-atlas.toml` 渲染 cells；`<data-root>/<cust>/pg-atlas` | 客户清单仍只有一份；租户身份是**注册事实**，不是计算结果 |
+| 8 | 网关 OML | 删掉 `adm.oml` 里的 UUID 死值，改成 `read(tenant_id)` **直接发客户号** | 数据面只负责“这行属于哪个客户”，不负责编码转换 |
 
 #### 5.7.5 短期兜底（在 1–8 做完之前）
 
@@ -245,14 +251,16 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 
 #### 5.7.6 契约与兼容
 
-| 场景 | 行为 |
+| 项 | 约定 |
 |---|---|
-| 现有站点（数据面直传 UUID） | `parse_str` 成功 → 直用，**零改动** |
-| 现有站点（数据面传 uuid5 死值） | 派生结果与死值等值 → 同上 |
-| 新站点（数据面传客户号 `1000000000000000001` / `c-a`） | 派生 uuid5 → 正常入库 |
-| 单客户站点 | 只有一个 tenant，读接口不带 `?tenant=` 时按该 tenant 兜底（与 evidence 的 `default_tenant` 同口径） |
+| **数据面契约** | 只发 `cust_id`（客户号），**不涉及 UUID** |
+| **租户身份** | `tenant_id` 是注册时生成并固化在 `configs/cells/cells.json` 的 UUID；atlas 运行时**只查表，不计算** |
+| 现有站点（数据面直传 UUID） | 兼容期保留：能解析成 UUID 且在 `tenant` 表内 → 照用；M1.7 上线后由数据面改发客户号 |
+| 新站点（数据面发客户号） | 查 cells → 命中 → 用该客户固定 `tenant_id`；未命中 → **400 `tenant_unregistered`**（不静默落 default） |
+| 单客户站点 | 只有一个租户，读接口不带 `?tenant=` 时按它兜底（与 evidence 的 `default_tenant` 同口径） |
+| 生成器 | `uuid4`（最干净）或 `uuid5(OID, "<站点>:<cust_id>")`（掉配置时可重算）—— **属于实现细节，不是对外契约** |
 
-**必须固化成契约**：`tenant_id = uuid5(NAMESPACE_OID, cust_id)`。写进 atlas 文档 + 一条锁定用例；这个值一旦改，等于把客户换成另一个租户。
+> 一句话：**对外契约是“客户号”，`tenant_id` 是内部注册数据。** 没有任何一方需要知道它是怎么算出来的。
 
 #### 5.7.7 验收
 
@@ -261,15 +269,33 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 3. 不带 `?tenant=` → 400 `tenant_required`；`?tenant=<不在白名单>` → 403 `tenant_not_allowed`（与证据同一套语义）。
 4. `tenant(tenant_id, tenant_ref)` 能反查：给一个 UUID 得到客户号，反之亦然。
 5. 单客户站点升级后行为不变（无 `?tenant=` 也能读）。
+6. 投一个**未登记**的 `cust_id` → 400 `tenant_unregistered`，数据面进 rescue（不落 default 库）。
 
 #### 5.7.8 风险
 
 | 风险 | 处置 |
 |---|---|
-| uuid5 规则被无意改动 → 租户漂移 | 契约 + 锁定用例；派生函数只允许一处实现 |
+| 配置与数据面不同步（客户已投递但 cells 没渲染 / 没重启） | 未登记一律 400 + 数据面 rescue 可见；`/healthz` 输出已登记 cells |
+| 生成器被替换 → “重算出的 UUID 不同” | 只影响“掉配置后恢复”；运行时以各库的 `tenant` 表为准（**库是权威**） |
 | 一个进程 × N 库的连接数 | 每 cell 独立 pool，`max_connections` 默认 4（与 evidence 同口径） |
 | 存量单库数据要迁到 per-customer 库 | 按 `tenant_id` `COPY ... TO` 再导入；probe 租户数据直接丢弃 |
-| `tenant_ref` 唯一约束 | 派生冲突（不同客户号撞同一 UUID）理论不可能，但加 unique 约束让它显式失败 |
+| `tenant_ref` / `tenant_id` 撞号 | 双向 UNIQUE，撞了显式失败 |
+
+#### 5.7.9 为什么不在运行时派生（uuid5 的取舍）
+
+`uuid5(NAMESPACE_OID, cust_id)` 看起来“零成本”（不改 schema、可复算），但只能当**权宜之计**，不能写进契约：
+
+| 问题 | 说明 |
+|---|---|
+| **跨站点撞号** | `uuid5(OID, "c-a")` 在任何站点都一样，而客户号只在站点内唯一 —— 将来汇总/迁移/并库时，两家不同客户会被当成**同一个租户**，且不会报错 |
+| **把租户身份绑死在业务号上** | 客户号会变（合并、搬迁、编号体系升级），一变租户就变，历史数据成为孤儿租户 |
+| **隐式契约 + 可枚举** | 规则一旦上线就不能改；且 UUID 可被任意人算出，失去“UUID 不可猜”这层防御 |
+
+所以：**派生只在“注册那一刻”发生一次**（`add-customer.sh`），结果落 `cells.json` + 拓扑库的 `tenant` 表，atlas 运行时永不计算。换客户号只改映射，数据不动。
+
+**现在改最便宜**：atlas 库里目前只有 probe 租户 + 一份 demo 数据（实测 `00000000-…a7a5` / `4d3c2b1a-…0001`），没有需要迁移的存量租户。等有了几个客户的拓扑数据再改规则，就得按租户 dump/restore。
+
+现场那行 OML 死值（`40a59f7d-…`）只是“把客户号塞进 UUID 列”的权宜之计；M1.7 上线时数据面改发客户号，这行随之删除 —— **不为了兼容它把错误规则固化下来**。
 
 ## 6. 加一个客户的完整步骤（三步，缺一不可）
 
@@ -297,7 +323,7 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 3. 审计：每次读记 `event=EvidenceRead subject=<credential subject> tenant=<id> path=<...>`。
 4. 凭据被撤销 → 下一次请求 401（现有校验路径不变）。
 
-## 9. 需要 review 拍板的 7 个点
+## 9. 需要 review 拍板的 9 个点
 
 | # | 问题 | 我的建议 |
 |---|---|---|
@@ -309,6 +335,7 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 | 6 | PG 形态 | **每客户独立实例**（真隔离、备份/恢复按客户）；不选“同实例多 database” |
 | 7 | 指标要不要**物理**分库（每客户一台 VM） | **本期不做**：单 VM + `tenant_id` 过滤已满足“选了客户只看该客户”；物理分离要新加分发器，收益只有“按客户独立留存/删除” |
 | 8 | 选客户的授权来源（本期） | **BFF 配置 `allowed_tenants`**（不碰 cred）；M2 再换成凭据。风险点：它无法按“人”细分客户权限，只适合内部人手少、相互信任的站点 |
+| 9 | atlas 的租户 UUID 从哪来 | **注册时生成并固化**（`cells.json` + `tenant` 表），**不在运行时派生**；未登记客户 → 400（§5.7.9） |
 
 ## 10. 分期与验收
 
@@ -327,7 +354,7 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 
 ### M1.7：atlas 客户隔离（`wist-atlas` + 栈，见 §5.7）
 
-- 核心：**保留 `tenant_id`**，改成“共享计算 + 每客户拓扑库”；ingest 接受客户号（`uuid5(OID, cust_id)` 派生，与现有死值等值）；读接口加 `?tenant=`；`tenant_ref` 落库可反查。
+- 核心：**保留 `tenant_id`**，改成“共享计算 + 每客户拓扑库”；数据面只发**客户号**，atlas 按 `cells.json` 解析（未登记 → 400），**不在运行时派生 UUID**；读接口加 `?tenant=`；`tenant(uuid, cust_id)` 落库可反查。
 - 验收：两客户各写一份 DSNAP → 两个拓扑库各自有 host；BFF 按 `?tenant=` 只看到自己家的；不带 → 400、越界 → 403；单客户站点行为不变。
 - 完成前的兜底：多客户站点 BFF 对 `/api/atlas/*` 返回 501。
 
