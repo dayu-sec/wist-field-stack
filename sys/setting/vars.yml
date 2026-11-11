@@ -15,7 +15,7 @@ system:
     value: ghcr.io/dayu-sec
 
   - name: FIELD_API_IMAGE_TAG
-    value: v0.7.1-alpha
+    value: v0.7.2-alpha
   - name: FIELD_WEB_IMAGE_TAG
     value: v0.2.8-alpha
   - name: EVIDENCE_IMAGE_TAG
