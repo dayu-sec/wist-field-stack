@@ -405,8 +405,8 @@ chmod 0644 "${ATLAS_DIR}/cells.json"
 
 ### S4 · 短期兜底（可与 atlas 任务并行）
 
-> **状态：已实现**（`wist-field-api` 0.7.1）。闸门位置在 `proxy_atlas` 里 `atlas_not_configured` 之后，
-> 因此“atlas 未配置”仍回 404，不会被 501 遮盖。
+> **状态：已实现**（`wist-field-api` 0.7.2；0.7.1 因 CI DNS 故障未出镜像）。闸门位置在 `proxy_atlas` 里
+> `atlas_not_configured` 之后，因此“atlas 未配置”仍回 404，不会被 501 遮盖；未认证仍先回 401。
 
 `src/api.rs` 的 `proxy_atlas`，在取到 `atlas` 配置之后：
 
