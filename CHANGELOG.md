@@ -35,6 +35,27 @@
 - 口径说明：这些校验**只做 field 内部自洽**。`cells.json` 不服务中心 / 网关，客户 id 与
   网关绑定的 `tenant_id` 是否相同是网关侧的事，两套系统**没有共享校验**。
 
+### 默认库走人（不向后兼容）
+
+- **删掉 `evidence-postgres` / `atlas-postgres` 两个默认库容器与它们的命名卷**，
+  连同 `DATABASE_URL`、`EVIDENCE_PG_DATA`、`ATLAS_PG_DATA`、`EVIDENCE_PG_HOST_PORT`、
+  `ATLAS_PG_HOST_PORT`、`EVIDENCE_OBJECTS_DIR` 六个现场变量。
+  它们服务的是「未登记客户的默认后端」，而现场每个客户都有自己的库 —— 那个库从头到尾
+  没人读。留着它只有一个效果：让「数据落错库」这件事有可能发生。
+- `wist-evidence` **0.3.0**：`[[storage.cell]]` 必填且 ≥1 条（一条 = 一个客户）；
+  未登记的 `cust_id` 写入 **400 `evidence_customer_unregistered`**（不再落 fallback）；
+  写探针改成**每个客户各投一条**（原来打的是保留客户 `c-probe`，没默认库后就是未登记）；
+  `/healthz` 始终回显 `cells` 清单（`cust_id` + index/objects 类型，不含连接串）。
+- `wist-atlas` **0.5.0**：`serve` 没有客户清单就**直接不启动**（以前落 `DATABASE_URL`）。
+  单客户站点也要登记一条 cell。
+- `wist-field-api` **0.7.4**：预签名能力只认 `s3`（`mixed` / `file` / 探测不到都走代理读正文）；
+  `/healthz` 回显启动时的客户清单（`customers.mode` / `customers.ids` / `auth`）。
+- **升级顺序**：先把客户登记齐（`add-customer.sh`）→ `gops sys localize` →
+  `gops run stop && gops run start`。以前只靠默认库跑的单客户站点，必须先把自己登记成
+  一个 cell（`cust_id` = 原来的 `EVIDENCE_TENANT`），否则升级后 evidence / atlas 起不来。
+  启动顺序上不再 `depends_on` 客户 PG（它们是动态生成的服务）：库里没就绪时
+  evidence / atlas 会重启重试，直到 PG 可连。
+
 > 本版本把 M1.7 的 S1–S5 全接上了；剩下 G1（网关 OML 改发客户号）—— 那一步要**和
 > 切 OML 同一轮**做，不然旧 OML 发的 UUID 会被当成未登记客户拒掉（详见
 > `docs/atlas-m1.7-tasks.md` §6）。

@@ -88,21 +88,14 @@ prepare_data_dir() {
   fi
 }
 
-prepare_data_dir "evidence-pg" "${EVIDENCE_PG_DATA:-evidence-pgdata}" || true
-prepare_data_dir "atlas-pg" "${ATLAS_PG_DATA:-atlas-pgdata}" || true
 prepare_data_dir "metrics" "${VM_DATA:-metrics-data}" || true
 
-# 证据正文（`objects.kind = file`）：宿主上可直接看。容器内是 uid 10001，
-# 而部署账号不是 10001，所以这里给到 0777（仅开发/测试栈；生产用 COS）。
-EVIDENCE_OBJECTS_ABS="$(resolve_data_path "${EVIDENCE_OBJECTS_DIR:-./data/evidence-objects}")"
-mkdir -p "${EVIDENCE_OBJECTS_ABS}"
-chmod 0777 "${EVIDENCE_OBJECTS_ABS}"
 # 凭据摘要表（`store_path`）：只存 sha256，验证侧私有状态。
 # 容器内是 uid 10001，与证据正文同理给到 0777（仅开发/测试栈）。
 FIELD_API_STORE_ABS="$(resolve_data_path "${FIELD_API_STORE_DIR:-./data/field-api}")"
 mkdir -p "${FIELD_API_STORE_ABS}"
 chmod 0777 "${FIELD_API_STORE_ABS}"
-note "runtime dirs: ${STACK_ROOT}/configs, ${STACK_ROOT}/.wist, ${EVIDENCE_OBJECTS_ABS}, ${FIELD_API_STORE_ABS}"
+note "runtime dirs: ${STACK_ROOT}/configs, ${STACK_ROOT}/.wist, ${FIELD_API_STORE_ABS}"
 
 # 2) configs/ 不在这里：它是 `sys/configs/*.tpl` 的渲染产物（`gx run localize` 的 gx.tpl）。
 #    见文件头 —— 一次性拷贝就是 0.2.x 里“升了栈、配置还是旧的”的根因。
@@ -120,7 +113,7 @@ align_ro_perms "${STACK_ROOT}/.wist" dir || true
 if [ -f "${STACK_ROOT}/.wist/sec-value.yml" ]; then
   align_ro_perms "${STACK_ROOT}/.wist/sec-value.yml" file || true
 else
-  note "缺少 ${STACK_ROOT}/.wist/sec-value.yml：至少需要 SEC_EVIDENCE_DB_URL"
+  note "缺少 ${STACK_ROOT}/.wist/sec-value.yml：至少要有每个客户的 SEC_EVIDENCE_DB_URL_<CUST>（用 sys/scripts/add-customer.sh 生成）"
 fi
 
 # 自注册的 setup code：**部署生成**的秘密，保护“谁能给这台机器指定 cred 地址”。

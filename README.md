@@ -18,8 +18,12 @@
 | `evidence` | 证据索引 + 对象存储 | 写 `${EVIDENCE_SINK_BIND_IP}:${EVIDENCE_SINK_HOST_PORT}:8080`；读仅网络内 `:${EVIDENCE_READ_PORT}` | `wist-evidence` |
 | `atlas` | 资产与拓扑 API（读接口要 Bearer 令牌） | 写 `${ATLAS_INGEST_BIND_IP}:${ATLAS_INGEST_HOST_PORT}:8080`；读仅网络内 `:8080` | `wist-atlas` |
 | `metrics` | 运行指标（VictoriaMetrics） | `${VM_BIND_IP}:${VM_HOST_PORT}:8428` | `victoriametrics/victoria-metrics` |
-| `evidence-postgres` | 证据索引库 | `${PG_BIND_IP}:${EVIDENCE_PG_HOST_PORT}:5432` | `postgres` |
-| `atlas-postgres` | 资产库 | `${PG_BIND_IP}:${ATLAS_PG_HOST_PORT}:5432` | `postgres` |
+| `pg-<cust>` | 证据索引库（**每客户一个**） | 仅 compose 网络（要排查用 `add-customer.sh <cust> --pg-port`） | `postgres` |
+| `pg-<cust>-atlas` | 资产库（**每客户一个**） | 同上 | `postgres` |
+
+客户 PG 不在本文件里：它们由 `configs/cells/compose.yml` 编排（`add-customer.sh` 登记、
+`gx run localize` 从 `configs/cells/cells.json` 全量生成）。**0.5.0 起没有默认库** ——
+一个客户都没登记时 `evidence` / `atlas` 起不来（这是有意的，见 `docs/multi-customer.md`）。
 
 **只有 `web` 给浏览器用**；对数据面开放的只有三个写/收端口：
 证据写（`18800`）、资产写（`18801`）、指标（`18428`）。其余服务都不绑宿主端口。
@@ -29,14 +33,13 @@
 ```bash
 cp .env.example .env
 
-# 1) 密钥：`${SEC_...}` 的真值（0640）
-mkdir -p .wist
-cat > .wist/sec-value.yml <<'YAML'
-SEC_EVIDENCE_DB_URL: postgres://evidence:evidence-dev-only@evidence-postgres:5432/wist_evidence
-YAML
-chmod 0640 .wist/sec-value.yml
+# 1) 登记客户：建数据目录（<数据根>/<cust>/{pg,objects,pg-atlas}）+ 写该客户的
+#    DB 密钥（栈根 `.wist/sec-value.yml` → `SEC_EVIDENCE_DB_URL_<CUST>`，0640）。
+#    客户 id 必须和数据面写入的 cust_id（= 网关绑定的 tenant_id）完全一致。
+bash sys/scripts/add-customer.sh <cust_id>
 
-# 2) 渲染 configs/（sys/configs/*.tpl -> 栈根 configs/）
+# 2) 渲染 configs/（sys/configs/*.tpl -> 栈根 configs/；同时生成
+#    configs/cells/compose.yml 与 evidence/atlas 的客户清单）
 #    `gx run localize` 就是 `gops sys localize` 里的那一步；手动 compose 路也走同一套
 #    （脚本会自己读栈根 `.env`，显式传入的环境变量优先）。
 #    没装 gx 时：先把 `sys/configs/*.toml.tpl` 当普通文件看 —— 里面的占位符不会被替换。
@@ -244,7 +247,7 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 | `ATLAS_PROBE` / `ATLAS_PROBE_INTERVAL_SECS` | `on` / `300` | atlas 写探针（往保留租户写最小 DSNAP） |
 | `EVIDENCE_READ_PORT` | `8443` | 证据读监听（容器内）。**一个来源**：evidence 的 `[read].listen_addr`、compose 健康检查、field-api 的 `evidence.base_url` 都从它来 |
 | `EVIDENCE_TENANT` | `c-001` | 证据服务的租户 = 客户 id（BFF 读的是这个客户的数据；一页一个客户，**每个站点不同**）|
-| `PG_BIND_IP` / `EVIDENCE_PG_HOST_PORT` / `ATLAS_PG_HOST_PORT` | `127.0.0.1:55434/55435` | 两个 PG（仅供排查） |
+| `PG_BIND_IP` | `127.0.0.1` | 客户 PG 绑宿主端口的默认监听地址（只在该客户 `--pg-port` 时才绑） |
 | `CREDENTIALS_BIND_IP` / `CREDENTIALS_HOST_PORT` | `0.0.0.0:18802` | cred 推送摘要 / 心跳的 mTLS 端口 |
 | `FIELD_API_ADVERTISE_HOST` | 空（**必填**） | 收数地址的主机名 = 证书 SAN = cred 拨号地址；不填 field-api 启动期就拒 |
 | `FIELD_API_AUDIENCE` | `wist-field-api` | 认证系统名（= cred 侧那个 peer 的名字）；凭据的 `audience` 不等于它就 401 `audience_mismatch` |
@@ -316,18 +319,18 @@ retention_hours = 24     # 能活多久；实际每小时扫一次
 **一个站点跑一套栈、同一时刻服务一个客户。** 多客户 = 多份数据落点 + 切指针，
 不是多套栈、也不是共享存储上的多租户（BFF 不做多租户授权，`EVIDENCE_TENANT` 仍是单值）。
 
-### 数据落点（默认 = 既有行为）
+### 数据落点
 
-| 数据 | 变量 | 默认 | 多客户时 |
-|---|---|---|---|
-| evidence 索引 | `EVIDENCE_PG_DATA` | 命名卷 `evidence-pgdata` | `/srv/wist-field/<cust>/pg/evidence` |
-| atlas 索引 | `ATLAS_PG_DATA` | 命名卷 `atlas-pgdata` | `/srv/wist-field/<cust>/pg/atlas` |
-| 运行指标 | `VM_DATA` | 命名卷 `metrics-data` | `/srv/wist-field/<cust>/vm` |
-| 证据正文 | `EVIDENCE_OBJECTS_DIR` | `./data/evidence-objects` | `/srv/wist-field/<cust>/objects` |
-| 凭据摘要表 | `FIELD_API_STORE_DIR` | `./data/field-api` | `/srv/wist-field/<cust>/field-api` |
+| 数据 | 位置 | 谁说了算 |
+|---|---|---|
+| 证据索引 | `<FIELD_DATA_ROOT>/<cust>/pg` | `cells.json` 的 `host_dir`（容器 `pg-<cust>`） |
+| 拓扑索引 | `<FIELD_DATA_ROOT>/<cust>/pg-atlas` | `cells.json` 的 `atlas_host_dir` |
+| 证据正文 | `<FIELD_DATA_ROOT>/<cust>/objects` | `cells.json` 的 `objects_dir` |
+| 运行指标 | `${VM_DATA}`（命名卷 `metrics-data`） | 不跟客户走（指标靠 `tenant_id` label 隔离） |
+| 凭据摘要表 | `${FIELD_API_STORE_DIR}` | 不跟客户走 |
 
-默认值故意保持原样：**升级不会搬数据**。容器 source 写卷名还是路径由 compose 自己判断，
-所以同一个变量两种用法。
+为什么指标 / 凭据表不跟客户走：它们**不存客户数据**（前者是时序指标、后者只存令牌摘要），
+按客户拆只会多出一堆空卷。证据与拓扑数据是客户资产，必须物理隔离。
 
 ### 绑定契约：三处必须同名
 
@@ -339,24 +342,20 @@ retention_hours = 24     # 能活多久；实际每小时扫一次
 
 ### 切一个客户
 
-```yaml
-# values/<系统>/sys_value.yml
-EVIDENCE_TENANT: acme
-EVIDENCE_PG_DATA: /srv/wist-field/acme/pg/evidence
-ATLAS_PG_DATA: /srv/wist-field/acme/pg/atlas
-VM_DATA: /srv/wist-field/acme/vm
-EVIDENCE_OBJECTS_DIR: /srv/wist-field/acme/objects
-FIELD_API_STORE_DIR: /srv/wist-field/acme/field-api
-```
+客户不是“切换指针”，是**并行登记**（每客户一套库与目录）：
 
 ```bash
-mkdir -p /srv/wist-field/acme/{pg/evidence,pg/atlas,vm,objects,field-api}
-gops sys localize     # 渲染 configs（DB URL / 对象路径 / tenant 一起变）
-gops run start        # stop -> up -d，让 PG 挂到新目录
+bash sys/scripts/add-customer.sh <cust_id>   # 建目录 + 登记 cells + 写密钥
+gops sys localize                          # 生成 compose 片段 + evidence/atlas 客户清单
+gops run start                             # 起新的 pg-<cust> / pg-<cust>-atlas
 ```
 
-切回默认：把上面 6 个键从 `values/` 删掉（或注释），再 `gops sys localize && gops run start` ——
-原来的命名卷还在，数据不丢。
+注销（数据默认保留）：
+
+```bash
+bash sys/scripts/add-customer.sh --remove <cust_id>              # 只退登记
+bash sys/scripts/add-customer.sh --remove <cust_id> --purge-data  # 连容器与数据目录一起删（不可逆）
+```
 
 ### 三条硬约束
 

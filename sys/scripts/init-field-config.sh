@@ -252,7 +252,7 @@ EOF
 #   - atlas 的租户是**登记时固化的 UUID**（`atlas_tenant_id`），不在运行时派生；
 #   - 清单**不含口令**：只给 host/user/database，口令由 compose 注入
 #     `WIST_ATLAS_PG_PASSWORD`，所以这份可以 0644 跟着 configs/ 备份。
-# 清单为空 = atlas 走单库老行为（与 evidence 的 cells 同口径）。
+# 清单为空 = atlas 起不来（0.5.0 去掉了默认库，与 evidence 的 cells 同口径）。
 ATLAS_CELLS_JSON="$(python3 - \
   "${CELLS_JSON}" "${ATLAS_PG_DB:-wist_atlas}" "${ATLAS_PG_USER:-atlas}" <<'PY'
 import json

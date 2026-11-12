@@ -14,7 +14,8 @@ include:
 #   evidence    wist-evidence：索引 + 对象存储（正文只在计算区与 COS 之间流动）
 #   atlas       wist-atlas：资产与拓扑 API（读接口要 Bearer 令牌）
 #   metrics     VictoriaMetrics：数据面 remote-write 进来的运行指标
-#   两个 PG     证据与资产生命周期不同，刻意分开
+#   两个 PG     证据与资产生命周期不同，刻意分开：**每个客户各一对**（由
+#               `configs/cells/compose.yml` 生成），本文件没有再写默认库。
 #
 # 拓扑画布不是独立容器：它已组件化进 field-web（`@dayu-sec/wist-atlas-graph`），
 # 数据走 BFF 的 `/api/atlas/*`。没有 `atlas-web` 服务，也没有 `/atlas/` 反代。
@@ -27,61 +28,19 @@ include:
 #                    给数据面 wparse 投 DSNAP（与 evidence 同一个三字段形状）
 #   metrics          ${VM_BIND_IP}:${VM_HOST_PORT}:8428
 #                    数据面 remote write / 运维查指标
-#   evidence-pg      ${PG_BIND_IP}:${EVIDENCE_PG_HOST_PORT}:5432
-#   atlas-pg         ${PG_BIND_IP}:${ATLAS_PG_HOST_PORT}:5432
 #   evidence（读）/ field-api：只在 compose 网络内，不绑宿主端口
 #                    证据读端口是 `${EVIDENCE_READ_PORT}`（与 evidence 配置 / field-api 同一来源）
 name: wist-field-stack
 
 services:
-  evidence-postgres:
-    container_name: wist-field-stack-evidence-postgres
-    image: ${PG_REGISTRY}/postgres:${PG_IMAGE_TAG}
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${EVIDENCE_PG_DB}
-      POSTGRES_USER: ${EVIDENCE_PG_USER}
-      POSTGRES_PASSWORD: ${EVIDENCE_PG_PASSWORD}
-      TZ: ${TZ}
-    ports:
-      - "${PG_BIND_IP}:${EVIDENCE_PG_HOST_PORT}:5432"
-    volumes:
-      # 数据落点：默认是命名卷（= 既有行为）；现场可改成带客户 id 的绝对路径
-      # （`/srv/wist-field/<cust>/pg/evidence`）——容器 source 写卷名或路径时
-      # compose 自己判断，所以同一个变量两种用法。见 sys/setting/vars.yml 的「客户数据落点」。
-      - ${EVIDENCE_PG_DATA:-evidence-pgdata}:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${EVIDENCE_PG_USER} -d ${EVIDENCE_PG_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  atlas-postgres:
-    container_name: wist-field-stack-atlas-postgres
-    image: ${PG_REGISTRY}/postgres:${PG_IMAGE_TAG}
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${ATLAS_PG_DB}
-      POSTGRES_USER: ${ATLAS_PG_USER}
-      POSTGRES_PASSWORD: ${ATLAS_PG_PASSWORD}
-      TZ: ${TZ}
-    ports:
-      - "${PG_BIND_IP}:${ATLAS_PG_HOST_PORT}:5432"
-    volumes:
-      - ${ATLAS_PG_DATA:-atlas-pgdata}:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${ATLAS_PG_USER} -d ${ATLAS_PG_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   evidence:
     container_name: wist-field-stack-evidence
     image: ${FIELD_REGISTRY}/wist-evidence:${EVIDENCE_IMAGE_TAG}
     restart: unless-stopped
-    depends_on:
-      evidence-postgres:
-        condition: service_healthy
+    # 客户 PG 是 `configs/cells/compose.yml` 里**动态生成**的服务（`pg-<cust>`），
+    # 没法写成静态的 `depends_on`。所以 evidence 启动时如果碰上客户库还没 ready，
+    # 会因连不上而退出，由 `restart: unless-stopped` 重试到 PG 就绪 —— 这是有意的：
+    # 宁可重试，也不要加一个“默认库”把这种启动顺序问题遮起来。
     environment:
       WIST_EVIDENCE_CONFIG: /etc/wist-evidence/wist-evidence.toml
       WIST_EVIDENCE_SEC_FILE: /sec/sec-value.yml
@@ -99,13 +58,8 @@ services:
       - ./.wist:/sec:ro
       # 多客户的证据正文根：宿主 `${FIELD_DATA_ROOT}/<cust>/objects` 挂到容器内 `/data-customers`
       # （配置里每个 cell 的 `objects.dir` 写 `/data-customers/<cust>/objects`）。
-      # 单客户站点不用这个目录，挂空目录也不影响。
+      # 0.5.0 起**只**有这个根：没有默认对象目录，所以也没有单独的那条挂载。
       - ${FIELD_DATA_ROOT:-./customers}:/data-customers
-      # 正文落本地目录（`objects.kind = file`）：宿主上能直接 `find` / `zstd -dc` 看，重启不丢。
-      # 容器内是 uid 10001，所以这个目录要在 init-stack.sh 里先建好并给到可写（仅开发栈）；
-      # `init-stack.sh` 按 `EVIDENCE_OBJECTS_DIR` 建目录（默认 `./data/evidence-objects`）。
-      # 生产切 COS（`objects.kind = s3`）时把这块去掉。
-      - ${EVIDENCE_OBJECTS_DIR:-./data/evidence-objects}:/var/lib/wist-evidence/objects
     healthcheck:
       # 读监听（P0 明文 + 身份头；mTLS 在 P1），走 busybox，不依赖 curl。
       # 端口跟着 `EVIDENCE_READ_PORT` 走。
@@ -119,20 +73,17 @@ services:
     container_name: wist-field-stack-atlas
     image: ${ATLAS_REGISTRY}/wist-atlas:${ATLAS_IMAGE_TAG}
     restart: unless-stopped
-    depends_on:
-      atlas-postgres:
-        condition: service_healthy
+    # 同上：客户库是动态生成的服务，靠重启重试等同就绪。
     environment:
-      DATABASE_URL: postgres://${ATLAS_PG_USER}:${ATLAS_PG_PASSWORD}@atlas-postgres:5432/${ATLAS_PG_DB}
       # 读接口令牌：没有它 atlas 直接启动失败（`/healthz` 与写入入口不需要）。
       WIST_ATLAS_TOKEN: ${ATLAS_API_TOKEN}
       # 写探针：往保留租户写一份最小 DSNAP，验「转换 → 落库 → 物化」。
       # 关掉就只是没有 probe 块，`/healthz` 仍返回 `{"status":"ok"}`。
       WIST_ATLAS_PROBE: ${ATLAS_PROBE}
       WIST_ATLAS_PROBE_INTERVAL_SECS: ${ATLAS_PROBE_INTERVAL_SECS}
-      # 多客户：客户清单（cust_id → 登记时固化的 tenant UUID + 库地址）。
-      # 清单由 `init-field-config.sh` 从 `configs/cells/cells.json` 渲染；
-      # **没有清单 / 清单为空 = 单库老行为**（上面那个 DATABASE_URL）。
+      # 客户清单（cust_id → 登记时固化的 tenant UUID + 库地址）。
+      # 由 `init-field-config.sh` 从 `configs/cells/cells.json` 渲染（`gx run localize`）。
+      # **0.5.0 起这是启动前提**：没有清单 / 清单为空 = 起不来（默认库已去掉）。
       WIST_ATLAS_CELLS_FILE: /etc/wist-atlas/cells.json
       # cells 清单里不含口令：各客户库共用这一个，atlas 自己拼连接串。
       WIST_ATLAS_PG_PASSWORD: ${ATLAS_PG_PASSWORD}
@@ -256,6 +207,7 @@ services:
 volumes:
   # 卷名随项目名（`wist-field-stack_*`）。0.2.0 改名后旧卷 `wist-console-stack_*`
   # 会留在宿主上不再被引用：确认不需要旧数据后自行 `docker volume rm`。
-  evidence-pgdata:
-  atlas-pgdata:
+  #
+  # 0.5.0 去掉了默认库，`evidence-pgdata` / `atlas-pgdata` 两个卷随之删除：
+  # 客户库的数据都在 `FIELD_DATA_ROOT/<cust>/pg*` 的宿主目录里，不在命名卷上。
   metrics-data:

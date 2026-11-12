@@ -140,13 +140,11 @@ system:
   - name: VM_RETENTION
     value: 30d
 
-  # 两个 PG（证据 / 资产生命周期不同，刻意分开）。默认只绑回环，供运维排查。
+  # 两个 PG（证据 / 资产生命周期不同，刻意分开）。
+  # **每个客户各一对**，由 `sys/scripts/add-customer.sh` 建、`configs/cells/compose.yml` 编排；
+  # 本文件只给它们共用的库名 / 用户 / 口令（0.5.0 起没有默认库，所以也没有它们的宿主端口）。
   - name: PG_BIND_IP
     value: 127.0.0.1
-  - name: EVIDENCE_PG_HOST_PORT
-    value: 55434
-  - name: ATLAS_PG_HOST_PORT
-    value: 55435
 
   - name: EVIDENCE_PG_DB
     value: wist_evidence
@@ -174,33 +172,16 @@ system:
 
   # ── 客户数据落点（多客户切换用）─────────────────────────────────────
   #
-  # 默认值 = **既有落点的写法**（命名卷 / 栈内相对路径）——升级不会搬数据。
-  # 一台上要放多个客户时，现场在 `values/<系统>/sys_value.yml` 里把它们改成
-  # 带客户 id 的**绝对路径**，同时把 `EVIDENCE_TENANT` 改成那个客户：
+  # 0.5.0 起客户的 PG / 对象目录都在 `FIELD_DATA_ROOT/<cust>/` 下（`add-customer.sh` 建、
+  # 客户清单记绝对路径）。这里只剩两台**不跟客户走**的存储：运行指标与 BFF 的凭据摘要表。
   #
-  #   EVIDENCE_TENANT: acme
-  #   EVIDENCE_PG_DATA: /srv/wist-field/acme/pg/evidence
-  #   ATLAS_PG_DATA: /srv/wist-field/acme/pg/atlas
-  #   VM_DATA: /srv/wist-field/acme/vm
-  #   EVIDENCE_OBJECTS_DIR: /srv/wist-field/acme/objects
-  #   FIELD_API_STORE_DIR: /srv/wist-field/acme/field-api
-  #
-  # 约束三条（切换客户时必须遵守，详见 README「多客户切换」）：
+  # 约束三条（换数据盘时必须遵守，详见 README「多客户切换」）：
   #   1. 先与数据面协调：新数据必须带**新客户**的 cust_id，否则指针切了也是空页；
-  #   2. 切换前备份（这四个目录不在 `sys-prj.yml: backup` 里）；
+  #   2. 切换前备份（这些目录不在 `sys-prj.yml: backup` 里）；
   #   3. 数据根在栈外时，`sys-prj.yml` 要加 `perms.allow_external`，否则
   #      `gops sys perms --apply` 不会去对齐它（它默认只管系统根以内的 bind 源）。
-  #
-  # 为什么是四个变量而不是一个 `FIELD_DATA_ROOT`：PG 与 VM 的 IO 特性不同，可能分盘；
-  # 且容器 source 写成“卷名或路径”时 compose 自己会判断 —— 现场只改自己需要的那几个。
-  - name: EVIDENCE_PG_DATA
-    value: evidence-pgdata
-  - name: ATLAS_PG_DATA
-    value: atlas-pgdata
   - name: VM_DATA
     value: metrics-data
-  - name: EVIDENCE_OBJECTS_DIR
-    value: ./data/evidence-objects
   - name: FIELD_API_STORE_DIR
     value: ./data/field-api
 

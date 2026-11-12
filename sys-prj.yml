@@ -20,7 +20,7 @@ test_envs:
 # 不变式 `ignore ⊆ protect`：不进交付包的按定义就不是包内容，升级当然也不该碰它。
 # 默认模式走 `git archive`（只看 git 跟踪），这几条是 **`--full` 模式的护栏**。
 ignore:
-  # 现场密钥（`SEC_EVIDENCE_DB_URL` / 自注册 setup code）：绝不进交付包。
+  # 现场密钥（每个客户的 `SEC_EVIDENCE_DB_URL_<CUST>` / 自注册 setup code）：绝不进交付包。
   - .wist
   - .env
   - sys/.wist
@@ -64,6 +64,6 @@ backup:
   # 渲染出的配置（field-api.toml / cred.toml / wist-evidence.toml / nginx.conf +
   # `*.value.json` 渲染值）。能重建，但恢复现场时"原样回放"最省事。
   - configs
-  # 栈根密钥：`SEC_EVIDENCE_DB_URL` 与部署生成的 **setup code**（自注册的一次性凭据）。
+  # 栈根密钥：每个客户的 `SEC_EVIDENCE_DB_URL_<CUST>` 与部署生成的 **setup code**。
   # setup code 是随机生成的、不可推导 —— 丢了只能重新生成，尚未用掉的接入流程就作废。
   - .wist

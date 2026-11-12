@@ -63,12 +63,19 @@
 配置（`wist-evidence.toml`）：
 
 ```toml
-# 默认后端：未在 [[storage.cell]] 里出现的 cust_id 落这里（见 §9 决策 1）
-[index]
-kind = "postgres"
-database_url = "${SEC_EVIDENCE_DB_URL}"
+# **已废止（0.5.0）**：下面这个“默认后端”已从 `wist-evidence` 删掉 ——
+# 现场从来没有客户真的用它，只留下「数据落错库」的可能。每个客户单独一条
+# `[[storage.cell]]`（含自己的 index/objects），没有 cell 就启动失败。
+#
+# 客户清单的真相是 `configs/cells/cells.json`，模板按客户展开。
+[[storage.cell]]
+cust_id = "<cust_id>"
 
-[objects]
+[storage.cell.index]
+kind = "postgres"
+database_url = "${SEC_EVIDENCE_DB_URL_<CUST>}"
+
+[storage.cell.objects]
 kind = "file"                     # 或 s3
 dir = "/srv/wist-field/_default/objects"
 
@@ -144,8 +151,9 @@ objects = { kind = "file", dir = "/srv/wist-field/1000.../objects" }
 | 客户增删 | 改 compose（加 PG）+ 改 values + `gops sys localize` + `gops run start` |
 | 单客户站点 | 不写 `EVIDENCE_CELLS` → 配置里没有 cells 段 → 行为与 0.3.x 完全一致 |
 
-> 注意：0.3.1 引入的 `EVIDENCE_PG_DATA` / `EVIDENCE_OBJECTS_DIR` 等变量在单客户场景继续有效；
-> 多客户场景下它们只描述 **default 后端**，各客户后端由 `EVIDENCE_CELLS` 描述。
+> 注意：0.3.1 引入的 `EVIDENCE_PG_DATA` / `EVIDENCE_OBJECTS_DIR` 等变量已随默认库一起删除
+> （0.5.0）。客户数据落在 `FIELD_DATA_ROOT/<cust>/{pg,objects,pg-atlas}`，由
+> `cells.json` 记绝对路径；只剩 `VM_DATA` / `FIELD_API_STORE_DIR` 两个不跟客户走的落点。
 
 ### 5.6 指标（VM）：按 `tenant_id` 过滤
 

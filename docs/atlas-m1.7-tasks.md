@@ -81,7 +81,7 @@
 
 - `cust_id` 重复、`tenant_id` 重复 → 拒启动；
 - `cust_id` 允用字符同 evidence：`[A-Za-z0-9_.-]`，长度 ≤ 64；
-- 文件不存在 / 空 `cells` → **合法**（= 单库老行为，零迁移）；
+- 文件不存在 / 空 `cells` → **（0.5.0 已改）现在拒启动**：默认库已去掉，一个客户都没登记就没有可服务的库（原来这条算合法“单库老行为”）；
 - 无 `WIST_ATLAS_PG_PASSWORD` 且有没有 `database_url` 的 cell → 拒启动。
 
 > 密钥不落 `configs/`：cells 文件只放 host/user/database（0644 可读），密码走环境变量。
