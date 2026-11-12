@@ -25,7 +25,8 @@ jobs:
         run: |
           # `sys/docker-compose.yml` 用 `include` 引入客户 PG 片段（`configs/cells/compose.yml`），
           # 而 `configs/` 是现场态（不入库）—— 这里用入库骨架铺一份，否则 include 找不到文件。
-          mkdir -p configs/cells
+          # `configs/atlas` 同理：atlas 把 `cells.json` 挂在那里（先目录后包，不代表有客户）。
+          mkdir -p configs/cells configs/atlas
           cp sys/configs/cells/compose.yml configs/cells/compose.yml
           docker compose --env-file .env.example \
             -f sys/docker-compose.yml --project-directory . config > /dev/null

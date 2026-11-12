@@ -130,7 +130,16 @@ services:
       # 关掉就只是没有 probe 块，`/healthz` 仍返回 `{"status":"ok"}`。
       WIST_ATLAS_PROBE: ${ATLAS_PROBE}
       WIST_ATLAS_PROBE_INTERVAL_SECS: ${ATLAS_PROBE_INTERVAL_SECS}
+      # 多客户：客户清单（cust_id → 登记时固化的 tenant UUID + 库地址）。
+      # 清单由 `init-field-config.sh` 从 `configs/cells/cells.json` 渲染；
+      # **没有清单 / 清单为空 = 单库老行为**（上面那个 DATABASE_URL）。
+      WIST_ATLAS_CELLS_FILE: /etc/wist-atlas/cells.json
+      # cells 清单里不含口令：各客户库共用这一个，atlas 自己拼连接串。
+      WIST_ATLAS_PG_PASSWORD: ${ATLAS_PG_PASSWORD}
       TZ: ${TZ}
+    volumes:
+      # 只读挂载：cells 清单（0644，不含密钥）
+      - ./configs/atlas:/etc/wist-atlas:ro
     # 写入端点（`/internal/atlas`）与读接口同一个监听：数据面 POST 到这里。
     ports:
       - "${ATLAS_INGEST_BIND_IP}:${ATLAS_INGEST_HOST_PORT}:8080"

@@ -20,6 +20,8 @@
 
 > **A1–A9 已在 `wist-atlas` 0.4.0 实现**（2026-11-11）。本文保留为“当时怎么拆的 + 实测撞到的坑”，
 > 未做的两项见 §8。
+> **S1–S3 已在 `wist-field-stack` 0.5.0 实现并本地验证**（证据库 + 拓扑库、cells 渲染、compose 挂载）；
+> S4（501）已在 `wist-field-api` 0.7.2 上线；**只剩 S5**（BFF 注入 `?tenant=`）与 G1（OML 切客户号）。
 
 | ID | 仓 | 任务 | 依赖 | 规模 |
 |---|---|---|---|---|
@@ -231,6 +233,11 @@ impl FromRequestParts<HttpAppState> for TenantCtx { /* 400 required / 403 not_al
 
 ### S1 · `add-customer.sh`（diff 草案）
 
+> **状态：已实现**（`wist-field-stack` 0.5.0）。实际实现与本节的差异：拓扑库的租户 UUID
+> 与目录都写进**同一个** `cells.json` 条目（`atlas_tenant_id` / `atlas_host_dir`），
+> 不再单独维护 `SEC_ATLAS_DB_URL_<CUST>` —— cells 清单只放 host/user/database，口令统一走
+> `WIST_ATLAS_PG_PASSWORD`。
+
 > 目标：一个客户登记 = 证据库 + 拓扑库 + 固定的 `atlas_tenant_id`，仍然只维护一份 `cells.json`。
 
 **① 参数增加**
@@ -347,6 +354,9 @@ lines.append("      retries: 20")
 
 ### S2 · `init-field-config.sh`
 
+> **状态：已实现**（0.5.0）：产出 `configs/atlas/cells.json`，内容与本节草案一致（
+> `default_tenant: null` + `cells[]`）；缺 `atlas_tenant_id` 的老条目会跳过并在 stderr 提醒。
+
 新增（放在 evidence cells 生成之后）：
 
 ```bash
@@ -385,6 +395,9 @@ chmod 0644 "${ATLAS_DIR}/cells.json"
 > `WIST_ATLAS_PG_PASSWORD` 注入。
 
 ### S3 · compose / 工作流
+
+> **状态：已实现**（0.5.0）：`atlas` 服务加了 `WIST_ATLAS_CELLS_FILE` / `WIST_ATLAS_PG_PASSWORD`
+> 与只读挂载 `./configs/atlas`；`init-stack.sh` 与 release 的 `Render compose` 都先铺这个目录。
 
 `sys/docker-compose.yml` 的 `atlas` 服务：
 
@@ -527,3 +540,30 @@ atlas 一旦加载了 cells 清单，写入口只认**客户号**（外加兼容
 
 **给下一个人的一句话**：atlas 的 storage 参数全部是文本 + SQL 里显式 cast；
 写新的 `INSERT`/`UPDATE` 时照抄 `postgres/sql.rs` 的形状，别用 `$n::uuid`。
+
+---
+
+## 9. S1–S3 实现期实测（2026-11-11，本地 0.5.0）
+
+三处自己踩的坑：
+
+| # | 现象 | 根因 | 正确做法 |
+|---|---|---|---|
+| 1 | `add-customer.sh` 报 `ATLAS_TENANT_ID_OVERRIDE: unbound variable` | 只加了引用没加变量声明与 `--atlas-tenant-id` 解析（`set -u` 直接炸） | 变量 + 参数分支一起加；`--help` 的 `sed` 行号也要跟着改 |
+| 2 | 拓扑库挂载被拼成 `<data>/<cust>/pg-atlas/pg-atlas` | `atlas_host_dir` 已经含 `pg-atlas`，compose 生成器又拼了一层 | 生成器直接用 `atlas_host_dir`；**evidence 那一侧**才是 `host_dir + /pg`，两者形状不同 |
+| 3 | shellcheck 报 `ATLAS_PG_HOST` 未使用 | 拓扑库的 host 由 `init-field-config.sh` 从 `cust_id` 推导（`pg-<cust>-atlas`），脚本里不需要它 | 删掉变量 |
+
+本地验收（真实容器，`ATLAS_IMAGE_TAG=v0.4.1-alpha`）：
+
+| 检查 | 结果 |
+|---|---|
+| `pg-c-a-atlas` / `pg-c-b-atlas` 起来并 healthy | ✅ |
+| 各库 `tenant` 表 | `c-a|450ed666-…` / `c-b|e1cf414f-…`（启动时幂等播种） |
+| 写 `cust_id=c-a` / `c-b` | 分别落在 `pg-c-a-atlas` / `pg-c-b-atlas`，互不出现 |
+| `GET /api/hosts?tenant=c-a` / `c-b` | 各只看到自己的 host |
+| 不带 `?tenant=` | `400 tenant_required` |
+| `?tenant=c-x` | `403 tenant_not_allowed`（不回显客户清单） |
+| 拿 c-b 的 host id + `?tenant=c-a` | `404`；同一个 id 用 c-b 读 `200` |
+| 写未登记 `cust_id` | `400 tenant_unregistered` |
+| `/healthz` | `cells: [c-a, c-b]`（不含连接串） |
+| BFF `/api/atlas/*`（多客户站点） | 仍 `501 atlas_not_multi_tenant`（S5 未做） |

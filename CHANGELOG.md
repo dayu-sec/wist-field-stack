@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## 0.5.0-alpha · 2026-11-11
+
+**资产拓扑也按客户分开**（与证据同一个客户清单，`wist-atlas` 0.4.x 的多客户能力）。
+
+- `add-customer.sh <cust>` 现在一次登记**两套库**：证据库 `pg-<cust>` + 拓扑库
+  `pg-<cust>-atlas`（数据目录 `<数据根>/<cust>/pg` 与 `<数据根>/<cust>/pg-atlas`）。
+- 拓扑租户 UUID **在登记时生成一次并固化**进 `configs/cells/cells.json`
+  （`atlas_tenant_id`），之后**永不重算**；要沿用现场已有的 UUID 用
+  `--atlas-tenant-id <uuid>`（从 `select tenant_id from tenant` 取）。
+- 新渲染产物 `configs/atlas/cells.json`：`cust_id → {tenant_id, host, database, user}`，
+  **不含口令**（口令由 compose 注入 `WIST_ATLAS_PG_PASSWORD`），所以它可以跟着
+  `configs/` 备份；atlas 启动时把它幂等地播种进各库的 `tenant` 表。
+- compose：`atlas` 服务新增 `WIST_ATLAS_CELLS_FILE` / `WIST_ATLAS_PG_PASSWORD` 与
+  只读挂载 `./configs/atlas`。**没有清单 / 清单为空 = 单库老行为**。
+- 版本：`ATLAS_IMAGE_TAG` → `v0.4.1-alpha`。
+
+> 本版只是把“分层能力”接上：BFF 在多客户站点仍对 `/api/atlas/*` 返回
+> `501 atlas_not_multi_tenant`（`wist-field-api` 0.7.2 起），等 S5（上游注入 `?tenant=`）
+> 并验证完再打开。
+
 ## 0.4.1-alpha · 2026-11-11
 
 - **修 CI**：`sys/docker-compose.yml` 用 `include` 引入 `configs/cells/compose.yml`，

@@ -57,7 +57,7 @@ if [ ! -f "${STACK_ROOT}/configs/cells/compose.yml" ]; then
 fi
 
 # 1) 运行态目录（栈根）
-mkdir -p "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/web" "${STACK_ROOT}/.wist"
+mkdir -p "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/atlas" "${STACK_ROOT}/configs/web" "${STACK_ROOT}/.wist"
 # 把“容器 source”解析成宿主绝对路径：默认值是命名卷名（如 `evidence-pgdata`），
 # 不归本脚本管；只有形如路径（含 `/`）的才需要提前建好。
 resolve_data_path() {
@@ -111,7 +111,7 @@ note "runtime dirs: ${STACK_ROOT}/configs, ${STACK_ROOT}/.wist, ${EVIDENCE_OBJEC
 # **不要**把 `.wist` 收成 0700：它是只读挂进容器的，容器以 10001:10001 运行，
 # 0700（属主 root）会让容器 stat 不到里面的文件 —— 症状是
 # `secrets file not found: /sec/sec-value.yml`，文件明明在，只是没权限。
-chmod 0755 "${STACK_ROOT}/configs" "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/web"
+chmod 0755 "${STACK_ROOT}/configs" "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/atlas" "${STACK_ROOT}/configs/web"
 # 配置里没有密钥（密钥是 `${SEC_…}` 占位 + `.wist/` 里的真值），所以整目录 0644。
 # 不只 `*.toml`：`nginx.conf` 也是渲染产物，靠容器读者（nginx master 以 root 起，后面降权）能读。
 find "${STACK_ROOT}/configs" -type f -exec chmod 0644 {} +

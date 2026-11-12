@@ -2,19 +2,20 @@
 # 加一个客户：建数据目录 + 一个独立 postgres + 登记到证据服务的存储路由。
 #
 # 用法：
-#   sys/scripts/add-customer.sh <cust_id> [--data-root DIR] [--pg-port PORT] [--apply]
+#   sys/scripts/add-customer.sh <cust_id> [--data-root DIR] [--pg-port PORT] [--atlas-tenant-id UUID] [--apply]
 #
 #   <cust_id>     客户 id，必须与**写入 body 的 `cust_id`**（以及网关绑定的 `tenant_id`）
 #                 完全一致 —— 这是路由的唯一依据。
 #   --data-root   数据根目录，默认取栈根 `.env` 的 `FIELD_DATA_ROOT`（默认 `./customers`）
 #   --pg-port     给该客户的 PG 绑一个宿主端口（默认不绑：容器网络内够用，也更安全）
+#   --atlas-tenant-id  沿用现场已有的拓扑租户 UUID（不继承就会新生成一个）；
+#                 从 `psql -c 'select tenant_ref, tenant_id from tenant'` 里取。
 #   --apply       本脚本末尾直接跑 `gops sys localize && gops run start`
 #
-# 它写三样东西（都可重入，重复跑结果一样）：
-#   1. `<data-root>/<cust>/{pg,objects}`                 数据目录（PG 与证据正文分开）
-#   2. `configs/cells/cells.json`                        客户清单（**唯一真相**）
-#   3. `configs/cells/compose.yml`                       由清单全量生成的 compose 片段
-#                                                       （主 compose 用 include 引入）
+# 它写的东西（都可重入，重复跑结果一样）：
+#   1. `<data-root>/<cust>/{pg,objects,pg-atlas}`    数据目录（证据 PG / 证据正文 / 拓扑 PG）
+#   2. `configs/cells/cells.json`                    客户清单（**唯一真相**，含固化的 `atlas_tenant_id`）
+#   3. `configs/cells/compose.yml`                   由清单全量生成的 compose 片段（证据库 + 拓扑库）
 #   4. `.wist/sec-value.yml` 的 `SEC_EVIDENCE_DB_URL_<CUST>`（幂等，0640）
 #
 # 为什么客户清单放 `configs/`：它是**站点现场态**。`sys/` 目录升级时会被包整体覆盖，
@@ -45,13 +46,16 @@ CUST=""
 DATA_ROOT="${FIELD_DATA_ROOT:-./customers}"
 PG_PORT=""
 APPLY=0
+# 沿用现场已有的拓扑租户 UUID（从 `select tenant_id from tenant` 取）；不给就新生成。
+ATLAS_TENANT_ID_OVERRIDE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --data-root) DATA_ROOT="${2:-}"; shift 2 ;;
     --pg-port) PG_PORT="${2:-}"; shift 2 ;;
+    --atlas-tenant-id) ATLAS_TENANT_ID_OVERRIDE="${2:-}"; shift 2 ;;
     --apply) APPLY=1; shift ;;
-    -h | --help) sed -n '2,26p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,21p' "$0"; exit 0 ;;
     -*) die "未知参数：$1（--help 看用法）" ;;
     *)
       [ -z "${CUST}" ] || die "只能给一个 cust_id（已给：${CUST}）"
@@ -85,6 +89,7 @@ esac
 DATA_DIR="${DATA_ROOT_ABS}/${CUST}"
 OBJECTS_DIR="${DATA_DIR}/objects"
 PG_DIR="${DATA_DIR}/pg"
+ATLAS_PG_DIR="${DATA_DIR}/pg-atlas"
 
 # 环境变量名：cust_id 里非 [A-Za-z0-9_] 的字符一律换成 `_`
 SEC_KEY="SEC_EVIDENCE_DB_URL_$(printf '%s' "${CUST}" | tr -c 'A-Za-z0-9_' '_' | tr '[:lower:]' '[:upper:]')"
@@ -95,9 +100,17 @@ PG_PASSWORD="${EVIDENCE_PG_PASSWORD:-}"
 [ -n "${PG_PASSWORD}" ] || die "EVIDENCE_PG_PASSWORD 为空：先跑 gops sys localize（或检查 values/）"
 PG_HOST="pg-${CUST}"
 
-# 1) 数据目录（PG 与对象分开：PG 要小页 IO、对象是大文件）
-mkdir -p "${PG_DIR}" "${OBJECTS_DIR}"
-note "data dirs: ${PG_DIR} , ${OBJECTS_DIR}"
+# 拓扑库（atlas）：一个客户一个库，租户 UUID 在这里**生成一次并固化**。
+# 不在运行时派生（原因见 docs/multi-customer.md §5.7.9）；口令由 compose 注入，
+# 不进 cells.json（那份清单是 0644 可读的）。
+ATLAS_PG_USER="${ATLAS_PG_USER:-atlas}"
+ATLAS_PG_DB="${ATLAS_PG_DB:-wist_atlas}"
+ATLAS_PG_PASSWORD="${ATLAS_PG_PASSWORD:-}"
+[ -n "${ATLAS_PG_PASSWORD}" ] || die "ATLAS_PG_PASSWORD 为空：先跑 gops sys localize（或检查 values/）"
+
+# 1) 数据目录（PG 与对象分开：PG 要小页 IO、对象是大文件；拓扑库再一套）
+mkdir -p "${PG_DIR}" "${OBJECTS_DIR}" "${ATLAS_PG_DIR}"
+note "data dirs: ${PG_DIR} , ${OBJECTS_DIR} , ${ATLAS_PG_DIR}"
 
 # 2) 密钥：该客户的 DB URL（幂等；已存在则保留现场值）
 if [ ! -f "${SEC_FILE}" ]; then
@@ -114,15 +127,36 @@ else
   note "已写入密钥：${SEC_KEY}（${SEC_FILE}）"
 fi
 
-# 3) 客户清单（cells.json）——**唯一真相**，compose 片段由它生成
+# 3) 客户清单（cells.json）——**唯一真相**，compose 片段与渲染值都由它生成
 mkdir -p "${CELLS_DIR}"
 [ -f "${CELLS_JSON}" ] || printf '[]\n' >"${CELLS_JSON}"
 
-python3 - "${CELLS_JSON}" "${CUST}" "${PG_PORT}" "${SEC_KEY}" "${DATA_DIR}" <<'PY'
+# 拓扑库的租户 UUID：已有就复用（幂等）；否则按 `--atlas-tenant-id` 或新生成一个。
+# 一旦写进清单就**不再重算**：换客户号只改映射，历史数据不动。
+ATLAS_TENANT_ID="$(python3 - "${CELLS_JSON}" "${CUST}" "${ATLAS_TENANT_ID_OVERRIDE}" <<'PY'
+import json
+import sys
+import uuid
+
+path, cust, override = sys.argv[1:4]
+try:
+    with open(path, encoding="utf-8") as handle:
+        cells = json.load(handle)
+except (FileNotFoundError, json.JSONDecodeError):
+    cells = []
+existing = next((c.get("atlas_tenant_id") for c in cells if c.get("cust_id") == cust), None)
+chosen = (override or existing or str(uuid.uuid4())).strip()
+uuid.UUID(chosen)  # 非法直接抛错，别把垃圾写进清单
+print(chosen)
+PY
+)"
+note "atlas tenant: ${CUST} -> ${ATLAS_TENANT_ID}"
+
+python3 - "${CELLS_JSON}" "${CUST}" "${PG_PORT}" "${SEC_KEY}" "${DATA_DIR}" "${ATLAS_TENANT_ID}" <<'PY'
 import json
 import sys
 
-path, cust, port, secret_key, data_dir = sys.argv[1:6]
+path, cust, port, secret_key, data_dir, atlas_tenant_id = sys.argv[1:7]
 
 with open(path, encoding="utf-8") as handle:
     cells = json.load(handle)
@@ -136,6 +170,9 @@ entry = {
     # 密钥文件里的键，渲染进 TOML 后由服务展开（明文不落 configs/）
     "database_url": "${" + secret_key + "}",
     "host_dir": data_dir,
+    # 拓扑库：一个客户一库；租户 UUID 登记时固化，atlas 只读
+    "atlas_tenant_id": atlas_tenant_id,
+    "atlas_host_dir": f"{data_dir}/pg-atlas",
 }
 if port:
     entry["pg_port"] = int(port)
@@ -203,6 +240,43 @@ else:
         lines.append("      timeout: 5s")
         lines.append("      retries: 20")
         lines.append("")
+
+        # 拓扑库（atlas）：同一套形态，换成 atlas 的库名 / 用户 / 目录。
+        # 早期登记的客户没有 atlas_* 字段 —— 跳过并提示重跑，别把半成品写进编排。
+        atlas_tenant = cell.get("atlas_tenant_id")
+        atlas_dir = cell.get("atlas_host_dir")
+        if not (atlas_tenant and atlas_dir):
+            print(
+                f"warning: 客户 {cust} 缺 atlas 登记（atlas_tenant_id/atlas_host_dir），"
+                f"本轮跳过拓扑库；重跑 add-customer.sh {cust} 补齐",
+                file=sys.stderr,
+            )
+            continue
+        lines.append(f"  pg-{cust}-atlas:")
+        lines.append(
+            f"    container_name: ${{CELL_NAME:-wist-field-stack}}-pg-{cust}-atlas"
+        )
+        lines.append(
+            "    image: ${PG_REGISTRY:-docker.io/library}/postgres:${PG_IMAGE_TAG:-16}"
+        )
+        lines.append("    restart: unless-stopped")
+        lines.append("    environment:")
+        lines.append("      POSTGRES_DB: ${ATLAS_PG_DB:-wist_atlas}")
+        lines.append("      POSTGRES_USER: ${ATLAS_PG_USER:-atlas}")
+        lines.append("      POSTGRES_PASSWORD: ${ATLAS_PG_PASSWORD}")
+        lines.append("      TZ: ${TZ:-Asia/Shanghai}")
+        lines.append("    volumes:")
+        # `atlas_host_dir` 已经是 `<数据根>/<cust>/pg-atlas`，不要再拼一层。
+        lines.append(f'      - {atlas_dir}:/var/lib/postgresql/data')
+        lines.append("    healthcheck:")
+        lines.append(
+            '      test: ["CMD-SHELL", "pg_isready -U '
+            '${ATLAS_PG_USER:-atlas} -d ${ATLAS_PG_DB:-wist_atlas}"]'
+        )
+        lines.append("      interval: 5s")
+        lines.append("      timeout: 5s")
+        lines.append("      retries: 20")
+        lines.append("")
     # 去重空行
     while lines and lines[-1] == "":
         lines.pop()
@@ -215,10 +289,11 @@ note "compose 片段已生成：${CELLS_COMPOSE}"
 
 # 5) 下一步
 echo
-note "客户 ${CUST} 已登记。下一步："
-note "  gops sys localize    # 把 cell 渲染进 configs/evidence/wist-evidence.toml"
-note "  gops run start       # 起 pg-${CUST} 并重载 evidence"
-note "  验证：docker compose --project-directory . -f sys/docker-compose.yml ps pg-${CUST}"
+note "客户 ${CUST} 已登记：证据库 + 拓扑库，atlas 租户 ${ATLAS_TENANT_ID}。下一步："
+note "  gops sys localize    # 渲染 evidence cells + configs/atlas/cells.json"
+note "  gops run start       # 起 pg-${CUST} / pg-${CUST}-atlas 并重载 evidence + atlas"
+note "  验证：docker compose --project-directory . -f sys/docker-compose.yml ps pg-${CUST} pg-${CUST}-atlas"
+note "  拓扑租户：psql -c 'select tenant_ref, tenant_id from tenant'  # 应看到 ${CUST}"
 
 if [ "${APPLY}" = "1" ]; then
   echo

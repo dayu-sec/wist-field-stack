@@ -38,6 +38,7 @@ load_env_defaults "${STACK_ROOT}"
 
 FIELD_API_DIR="${STACK_ROOT}/configs/field-api"
 EVIDENCE_DIR="${STACK_ROOT}/configs/evidence"
+ATLAS_DIR="${STACK_ROOT}/configs/atlas"
 
 note() { echo "  $*"; }
 die() {
@@ -151,7 +152,7 @@ write_json() {
   fi
 }
 
-mkdir -p "${FIELD_API_DIR}" "${EVIDENCE_DIR}" "${STACK_ROOT}/configs/web"
+mkdir -p "${FIELD_API_DIR}" "${EVIDENCE_DIR}" "${ATLAS_DIR}" "${STACK_ROOT}/configs/web"
 
 # 老现场收尾：bind 源缺失时 docker 会把**文件级**挂载目标建成**同名目录**
 # （`configs/field-api/cred.toml` 变成目录）—— 之后 `gx.tpl` 往目录里写就会失败，
@@ -242,3 +243,49 @@ write_json "${EVIDENCE_DIR}/wist-evidence.value.json" cat <<EOF
   "evidence_cells": ${EVIDENCE_CELLS_JSON}
 }
 EOF
+
+# ④ 资产拓扑（atlas）：同一个客户清单 → `configs/atlas/cells.json`。
+#
+# 与证据 cells **同源**（cells.json），不各维护一份。差异：
+#   - atlas 的租户是**登记时固化的 UUID**（`atlas_tenant_id`），不在运行时派生；
+#   - 清单**不含口令**：只给 host/user/database，口令由 compose 注入
+#     `WIST_ATLAS_PG_PASSWORD`，所以这份可以 0644 跟着 configs/ 备份。
+# 清单为空 = atlas 走单库老行为（与 evidence 的 cells 同口径）。
+ATLAS_CELLS_JSON="$(python3 - \
+  "${CELLS_JSON}" "${ATLAS_PG_DB:-wist_atlas}" "${ATLAS_PG_USER:-atlas}" <<'PY'
+import json
+import sys
+
+cells_path, database, user = sys.argv[1:4]
+try:
+    with open(cells_path, encoding="utf-8") as handle:
+        cells = json.load(handle)
+except (FileNotFoundError, json.JSONDecodeError):
+    cells = []
+
+out = []
+for cell in cells:
+    cust_id = cell.get("cust_id")
+    tenant_id = cell.get("atlas_tenant_id")
+    if not cust_id or not tenant_id:
+        # 早期登记的客户没有拓扑库：跳过并提醒（重跑 add-customer.sh 补齐）。
+        print(
+            f"warning: 客户 {cust_id or '?'} 缺 atlas 登记，本轮不进 atlas 清单；"
+            f"重跑 add-customer.sh {cust_id or '<cust>'} 补齐",
+            file=sys.stderr,
+        )
+        continue
+    out.append(
+        {
+            "cust_id": cust_id,
+            "tenant_id": tenant_id,
+            "host": f"pg-{cust_id}-atlas",
+            "database": database,
+            "user": user,
+        }
+    )
+
+print(json.dumps({"default_tenant": None, "cells": out}, ensure_ascii=False))
+PY
+)"
+write_json "${ATLAS_DIR}/cells.json" printf '%s\n' "${ATLAS_CELLS_JSON}"
