@@ -448,7 +448,7 @@ if state.config.evidence.allowed_tenants.len() > 1 {
 
 测试：`tests/contract.rs` 增一条（多客户配置 → 501）。
 
-### S5 · 隔离完成后
+### S5 · 隔离完成后（**已实现**：field-api 0.7.3 + field-web 0.2.9）
 
 - `proxy_atlas` 解析 `?tenant=`（复用 `resolve_tenant`），把 `tenant=<cust_id>` 追加到上游 query；
 - 删除 S4 的 501 分支与其用例；

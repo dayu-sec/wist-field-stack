@@ -2,9 +2,9 @@ system:
 - name: FIELD_REGISTRY
   value: ghcr.io/dayu-sec
 - name: FIELD_API_IMAGE_TAG
-  value: v0.7.2-alpha
+  value: v0.7.3-alpha
 - name: FIELD_WEB_IMAGE_TAG
-  value: v0.2.8-alpha
+  value: v0.2.9-alpha
 - name: EVIDENCE_IMAGE_TAG
   value: v0.2.0-alpha
 - name: ATLAS_REGISTRY

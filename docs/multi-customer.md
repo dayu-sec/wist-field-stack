@@ -19,7 +19,7 @@
 | 证据（evidence） | ✅ M1 | 客户调查报告，天然按 `cust_id` 组织，是这次的主体 |
 | 运行指标（VM） | ✅ M1.5 查询隔离 | 指标带 `tenant_id` label（来源：网关 `bind-tenant` → `WP_GLOBAL_TAGS`），按客户过滤即可（§5.6） |
 | 选客户的授权来源 | M1.5 配置白名单 / M2 凭据 | **本期不动 `wist-cred`**：先让 BFF 从配置里的 `allowed_tenants` 取；以后再换成凭据的 `resources.tenants` |
-| 资产拓扑（atlas） | ⏳ 方案已定，未实施（§5.7） | 保留 atlas 的 `tenant_id`（路由 + 审计），改“共享计算 + 每客户库”；做完前 BFF 在多客户站点直接 501 |
+| 资产拓扑（atlas） | ✅ M1.7 | 保留 atlas 的 `tenant_id`（路由 + 审计），采用“共享计算 + 每客户库”；BFF 校验并注入 `?tenant=`（§5.7） |
 | 凭据摘要表 | ❌ 不分 | 它是"人"的授权表，按客户分反而查不到自己 |
 
 ## 2. 决定架构的四条事实（都已核实）
@@ -245,11 +245,11 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 | 7 | 栈 | `add-customer.sh`：生成 `atlas_tenant_id`（写进 `cells.json`，之后**永不重算**）、建 `pg-<cust>-atlas`、在该库落 `tenant` 行；`wist-atlas.toml` 渲染 cells；`<data-root>/<cust>/pg-atlas` | 客户清单仍只有一份；租户身份是**注册事实**，不是计算结果 |
 | 8 | 网关 OML | 删掉 `adm.oml` 里的 UUID 死值，改成 `read(tenant_id)` **直接发客户号** | 数据面只负责“这行属于哪个客户”，不负责编码转换 |
 
-#### 5.7.5 短期兜底（在 1–8 做完之前）
+#### 5.7.5 短期兜底→已取代
 
-**已实现**（`wist-field-api` 0.7.2；0.7.1 因 CI 网络故障未出镜像）：多客户站点（`allowed_tenants.len() > 1`）时，BFF 的 `/api/atlas/*`
-直接返回 **501 `atlas_not_multi_tenant`**；`atlas` 未配置时仍回 404；单客户站点行为不变。
-未认证仍先回 401（闸门在身份校验之后）。
+原来的兜底（多客户站点 `/api/atlas/*` 回 501）已在 `wist-field-api` **0.7.3** 删除。
+现在 BFF 用与证据同一套选客户逻辑，校验后把 `tenant=<cust_id>` 注入给 atlas（atlas 0.4 起读接口按它选库）。
+前端拓扑页（`wist-field-web` 0.2.9 起）给画布组件补了 `fetchImpl`，把当前客户带上。
 
 理由：现在它是“看着能用、实际跨客户可见”，这种半可用状态比坏掉更危险（与“页面能开但永远 401”同一类问题）。单客户站点保持现状不动。
 
@@ -384,7 +384,7 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 
 | 缺口 | 现状 | 影响 | 计划 |
 |---|---|---|---|
-| `/api/atlas/*` 不按客户过滤 | BFF 对 atlas 纯透传，`?tenant=` 不参与；atlas 读接口本身也不带租户 | atlas 里的资产能看到**其他客户**的 | 见 §5.7（保留 tenant_id + 每客户库 + 读接口加 `?tenant`）；完成前多客户站点 501 |
+| ~~`/api/atlas/*` 不按客户过滤~~ | **已解决**（`wist-atlas` 0.4.x + `wist-field-api` 0.7.3 + `wist-field-web` 0.2.9） | 已按客户分开：每客户一个拓扑库，BFF 校验并注入 `?tenant=` | §5.7 |
 | probe 只探 default 后端 | `wist-evidence` 的探针仍只扫 default cell | 某个客户 PG 写挂了不会主动报错，只能等查询失败 | M2 顺手做：probe 对 `Backends::cells` 逐个跑 |
 | 授权源是配置，不是凭据 | `allowed_tenants` 写在 `field-api.toml` | 无法按“人”细分客户权限；改白名单要改配置并重启 BFF | M2：换成 cred 的 `resources.tenants` |
 | 指标过滤依赖数据带 `tenant_id` | BFF 往每个查询表达式注入 `tenant_id="…"` | 若上报侧没打这个 label，查询结果为空（不会串客户，但会“看不见”） | 部署后用 `GET /api/v1/labels` 确认 label 存在 |

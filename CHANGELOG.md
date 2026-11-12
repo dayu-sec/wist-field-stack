@@ -14,11 +14,15 @@
   `configs/` 备份；atlas 启动时把它幂等地播种进各库的 `tenant` 表。
 - compose：`atlas` 服务新增 `WIST_ATLAS_CELLS_FILE` / `WIST_ATLAS_PG_PASSWORD` 与
   只读挂载 `./configs/atlas`。**没有清单 / 清单为空 = 单库老行为**。
-- 版本：`ATLAS_IMAGE_TAG` → `v0.4.1-alpha`。
+- 版本：`ATLAS_IMAGE_TAG` → `v0.4.1-alpha`，`FIELD_API_IMAGE_TAG` → `v0.7.3-alpha`，
+  `FIELD_WEB_IMAGE_TAG` → `v0.2.9-alpha`。
+- **资产拓扑页现在能正常显示当前客户的拓扑**：`wist-field-api` 0.7.3 用与证据同一套选客户，
+  校验后把 `tenant=` 注入给 atlas；`wist-field-web` 0.2.9 让画布组件带上当前客户。
+  多客户站点不再 501（单客户站点行为不变）。
 
-> 本版只是把“分层能力”接上：BFF 在多客户站点仍对 `/api/atlas/*` 返回
-> `501 atlas_not_multi_tenant`（`wist-field-api` 0.7.2 起），等 S5（上游注入 `?tenant=`）
-> 并验证完再打开。
+> 本版本把 M1.7 的 S1–S5 全接上了；剩下 G1（网关 OML 改发客户号）—— 那一步要**和
+> 切 OML 同一轮**做，不然旧 OML 发的 UUID 会被当成未登记客户拒掉（详见
+> `docs/atlas-m1.7-tasks.md` §6）。
 
 ## 0.4.1-alpha · 2026-11-11
 
