@@ -313,6 +313,17 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 **治理**：evidence 的 cells 与 cred 的 tenants 是两份清单，可能不一致。
 `/healthz` 输出 cells 清单；`gops run diagnose`（后续）对比"授权有、存储无"并告警。
 
+### 注销一个客户
+
+```bash
+sys/scripts/add-customer.sh --remove <cust_id>              # 只注销登记（清单 / compose / 密钥）
+sys/scripts/add-customer.sh --remove <cust_id> --purge-data  # 同时删两个容器与数据目录（不可逆）
+```
+
+为什么也走脚本：`configs/cells/cells.json` 是**唯一真相**，compose 片段由它全量重写；
+手改清单很快会被下一次生成抹平。注销后要 `gops sys localize && gops run start` ——
+evidence / atlas / BFF 都是**启动时**读清单与白名单的，光改文件不重建容器不会生效。
+
 ## 7. 兼容与迁移
 
 | 场景 | 行为 |

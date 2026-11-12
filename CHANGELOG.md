@@ -16,6 +16,8 @@
   只读挂载 `./configs/atlas`。**没有清单 / 清单为空 = 单库老行为**。
 - 版本：`ATLAS_IMAGE_TAG` → `v0.4.1-alpha`，`FIELD_API_IMAGE_TAG` → `v0.7.3-alpha`，
   `FIELD_WEB_IMAGE_TAG` → `v0.2.9-alpha`。
+- **注销客户**：`add-customer.sh --remove <cust_id> [--purge-data]` —— 从清单 / compose 片段 /
+  密钥文件移除登记；`--purge-data` 才删容器与数据目录（不可逆）。
 - **资产拓扑页现在能正常显示当前客户的拓扑**：`wist-field-api` 0.7.3 用与证据同一套选客户，
   校验后把 `tenant=` 注入给 atlas；`wist-field-web` 0.2.9 让画布组件带上当前客户。
   多客户站点不再 501（单客户站点行为不变）。
