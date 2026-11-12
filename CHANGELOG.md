@@ -55,6 +55,8 @@
   一个 cell（`cust_id` = 原来的 `EVIDENCE_TENANT`），否则升级后 evidence / atlas 起不来。
   启动顺序上不再 `depends_on` 客户 PG（它们是动态生成的服务）：库里没就绪时
   evidence / atlas 会重启重试，直到 PG 可连。
+- 版本：`EVIDENCE_IMAGE_TAG` → `v0.3.0-alpha`，`ATLAS_IMAGE_TAG` → `v0.5.0-alpha`，
+  `FIELD_API_IMAGE_TAG` → `v0.7.4-alpha`（`wist-field-web` 不变）。
 
 > 本版本把 M1.7 的 S1–S5 全接上了；剩下 G1（网关 OML 改发客户号）—— 那一步要**和
 > 切 OML 同一轮**做，不然旧 OML 发的 UUID 会被当成未登记客户拒掉（详见

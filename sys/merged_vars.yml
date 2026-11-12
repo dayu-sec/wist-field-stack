@@ -2,15 +2,15 @@ system:
 - name: FIELD_REGISTRY
   value: ghcr.io/dayu-sec
 - name: FIELD_API_IMAGE_TAG
-  value: v0.7.3-alpha
+  value: v0.7.4-alpha
 - name: FIELD_WEB_IMAGE_TAG
   value: v0.2.9-alpha
 - name: EVIDENCE_IMAGE_TAG
-  value: v0.2.0-alpha
+  value: v0.3.0-alpha
 - name: ATLAS_REGISTRY
   value: ghcr.io/dayu-sec
 - name: ATLAS_IMAGE_TAG
-  value: v0.4.1-alpha
+  value: v0.5.0-alpha
 - name: PG_REGISTRY
   value: docker.io/library
 - name: PG_IMAGE_TAG
