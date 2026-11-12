@@ -458,7 +458,7 @@ if state.config.evidence.allowed_tenants.len() > 1 {
 
 ## 5. 数据面（`wist-gateway-stack`）
 
-### G1 · OML
+### G1 · OML（**已实现**：gateway-stack，未推送——该仓另有 5 个他人在途提交）
 
 `sys/data-plane/models/oml/agent_uplink/agent_uplink_obs_dsnap/adm.oml`：
 
