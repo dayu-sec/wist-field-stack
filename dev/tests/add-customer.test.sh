@@ -76,7 +76,7 @@ if python3 -c 'import sys,uuid; uuid.UUID(sys.argv[1])' "$(cell_field DEV-1 atla
 else
   test_no "拓扑租户不是合法 UUID：$(cell_field DEV-1 atlas_tenant_id)"
 fi
-for dir in pg objects pg-atlas; do
+for dir in pg pg-atlas; do
   if [ -d "${S}/customers/DEV-1/${dir}" ]; then
     test_ok "数据目录已建：customers/DEV-1/${dir}"
   else
@@ -120,16 +120,20 @@ fi
 # 证据正文必须**按客户**挂：主 compose 里若还挂整个数据根，客户的 PG 数据会跟着
 # 落进 evidence 的写权限，`gops sys perms --apply` 会把它们 chown 成 0:10001 + 组可写，
 # PostgreSQL（uid 999）就起不来了。
-if grep -q "^      - .*/customers/DEV-1/objects:/data-customers/DEV-1/objects$" "${COMPOSE}"; then
-  test_ok "evidence 按客户挂对象目录"
+if [ -d "${S}/customers/objects/DEV-1" ]; then
+  test_ok "对象目录按客户存放（<数据根>/objects/<cust>）"
 else
-  test_no "compose 片段缺 evidence 的对象目录挂载"
+  test_no "对象目录布局不是 <数据根>/objects/<cust>"
 fi
-# 看的是**挂载行**（`- xxx:/data-customers`），不是注释里提到的路径。
-if grep -qE '^[[:space:]]+- [^#]*:/data-customers[[:space:]]*$' "${S}/sys/docker-compose.yml"; then
-  test_no "主 compose 仍在挂 /data-customers（会把客户 PG 目录卷进 evidence）"
+if grep -qE '^      - .*/objects:/data-customers$' "${S}/sys/docker-compose.yml"; then
+  test_ok "主 compose 把对象子树挂给 evidence"
 else
-  test_ok "主 compose 不再递归挂在数据根"
+  test_no "主 compose 的对象挂载不对（应只挂 <数据根>/objects）"
+fi
+if grep -qE '^[[:space:]]+- [^#]*customers:/data-customers[[:space:]]*$' "${S}/sys/docker-compose.yml"; then
+  test_no "主 compose 递归挂了整个数据根（会把客户 PG 目录卷进 evidence）"
+else
+  test_ok "主 compose 没有递归挂数据根"
 fi
 
 echo "④ --pg-port 只给该客户开宿主端口"

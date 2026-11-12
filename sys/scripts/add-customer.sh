@@ -98,7 +98,11 @@ case "${DATA_ROOT}" in
   *) DATA_ROOT_ABS="${STACK_ROOT}/${DATA_ROOT#./}" ;;
 esac
 DATA_DIR="${DATA_ROOT_ABS}/${CUST}"
-OBJECTS_DIR="${DATA_DIR}/objects"
+# 对象目录**不在**客户目录里，而是 `<数据根>/objects/<cust>`：
+# evidence 只挂 `<数据根>/objects`（见 `sys/docker-compose.yml`），这样客户的 PG 数据
+# 不会落在 evidence 的挂载里 —— 否则 `gops sys perms --apply` 会把它们 chown 成
+# evidence 的 gid + 组可写，PostgreSQL 就起不来了。
+OBJECTS_DIR="${DATA_ROOT_ABS}/objects/${CUST}"
 PG_DIR="${DATA_DIR}/pg"
 ATLAS_PG_DIR="${DATA_DIR}/pg-atlas"
 
@@ -183,6 +187,15 @@ PY
     else
       note "数据目录不存在（跳过）：${REMOVED_HOST_DIR}"
     fi
+    # 对象目录是它的兄弟目录（`<数据根>/objects/<cust>`），同样末段校验后删。
+    REMOVED_OBJECTS_DIR="$(dirname "${REMOVED_HOST_DIR}")/objects/${CUST}"
+    if [ "$(basename "${REMOVED_OBJECTS_DIR}")" != "${CUST}" ]; then
+      die "拒绝删除可疑对象目录：「${REMOVED_OBJECTS_DIR}」"
+    fi
+    if [ -d "${REMOVED_OBJECTS_DIR}" ]; then
+      rm -rf "${REMOVED_OBJECTS_DIR}"
+      note "已删除对象目录：${REMOVED_OBJECTS_DIR}"
+    fi
   else
     note "容器与数据未动；确认要连数据一起删就加 --purge-data"
   fi
@@ -250,7 +263,7 @@ if not isinstance(cells, list):
 
 entry = {
     "cust_id": cust,
-    # 容器内路径：宿主 {data_root}/{cust}/objects 挂到 /data-customers/{cust}/objects
+    # 容器内路径：宿主 {data_root}/objects/{cust} 挂到 /data-customers/{cust}/objects
     "objects_dir": f"/data-customers/{cust}/objects",
     # 密钥文件里的键，渲染进 TOML 后由服务展开（明文不落 configs/）
     "database_url": "${" + secret_key + "}",
