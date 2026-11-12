@@ -10,7 +10,7 @@ system:
 - name: ATLAS_REGISTRY
   value: ghcr.io/dayu-sec
 - name: ATLAS_IMAGE_TAG
-  value: v0.5.0-alpha
+  value: v0.5.1-alpha
 - name: PG_REGISTRY
   value: docker.io/library
 - name: PG_IMAGE_TAG
