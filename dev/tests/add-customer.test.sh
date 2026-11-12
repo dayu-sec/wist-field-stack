@@ -117,6 +117,20 @@ if grep -q '^      - .*/customers/DEV-1/pg-atlas:/var/lib/postgresql/data$' "${C
 else
   test_no "拓扑库卷路径不对：$(grep 'pg-atlas:/var/lib' "${COMPOSE}" || echo '缺失')"
 fi
+# 证据正文必须**按客户**挂：主 compose 里若还挂整个数据根，客户的 PG 数据会跟着
+# 落进 evidence 的写权限，`gops sys perms --apply` 会把它们 chown 成 0:10001 + 组可写，
+# PostgreSQL（uid 999）就起不来了。
+if grep -q "^      - .*/customers/DEV-1/objects:/data-customers/DEV-1/objects$" "${COMPOSE}"; then
+  test_ok "evidence 按客户挂对象目录"
+else
+  test_no "compose 片段缺 evidence 的对象目录挂载"
+fi
+# 看的是**挂载行**（`- xxx:/data-customers`），不是注释里提到的路径。
+if grep -qE '^[[:space:]]+- [^#]*:/data-customers[[:space:]]*$' "${S}/sys/docker-compose.yml"; then
+  test_no "主 compose 仍在挂 /data-customers（会把客户 PG 目录卷进 evidence）"
+else
+  test_ok "主 compose 不再递归挂在数据根"
+fi
 
 echo "④ --pg-port 只给该客户开宿主端口"
 sandbox_run add-customer.sh DEV-2 --pg-port 55499 >/dev/null

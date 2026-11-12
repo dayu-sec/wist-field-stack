@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## 0.5.3-alpha · 2026-11-12
+
+**修一个会在重部署时弄坏客户 PG 的挂载问题**（只动栈，不动镜像）。
+
+`evidence` 原来挂的是**整个数据根**（`${FIELD_DATA_ROOT}:/data-customers`），而客户的
+PG 数据（`<数据根>/<cust>/pg`、`pg-atlas`）就在它下面。后果：
+
+- `gops sys perms --apply` 把它们当成 evidence 的写目录，chown 成 `0:10001` + 组可写；
+  PostgreSQL（uid 999）读不到自己的文件、也拒绝组可写的建库目录 → atlas 无限重启；
+- 顺带把客户索引库暴露在 evidence 的写权限里，隔离本来就是假的。
+
+修法：**对象目录按客户单独挂**。
+
+- 主 compose 去掉 `${FIELD_DATA_ROOT}:/data-customers`；
+- `configs/cells/compose.yml`（localize 从 `cells.json` 生成）为每个客户追加
+  `{host_dir}/objects:/data-customers/<cust>/objects`；PG 目录只挂给各自的 PG 容器，
+  不再落在任何 evidence 的挂载里。
+- 新增回归：生成片段必须带每个客户的对象挂载，且主 compose 不得再出现
+  `:/data-customers` 的挂载行。
+
+升级影响：先 `gops sys localize` 重生成片段再 `gops run start`（否则 evidence 会丢掉
+对象挂载 → 新建正文写不进去）。
+
 ## 0.5.2-alpha · 2026-11-12
 
 **清掉默认库遗留的两个死旋钮**（只动栈，不动镜像）。

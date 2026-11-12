@@ -319,6 +319,11 @@ header = """# 由 `sys/scripts/init-field-config.sh` 从 `configs/cells/cells.js
 # 每个客户一个独立 postgres：独立数据目录 = 独立故障域/备份粒度。
 # 不绑宿主端口（证据服务在 compose 网络上直连 `pg-<cust>:5432`）。
 # 要开放给运维排查，用 `add-customer.sh <cust> --pg-port <port>` 重新登记。
+#
+# 末尾还给 `evidence` 追加**每客户一条**的对象目录挂载。为什么按客户挂、
+# 而不在主 compose 里挂整个数据根：那会把客户的 PG 数据 (`{host_dir}/pg*`)
+# 也卷进 evidence 的写权限里，`gops sys perms --apply` 会把它 chown 成
+# `0:10001` + 组可写 —— PostgreSQL（uid 999）就不干了。
 """
 
 lines = [header]
@@ -393,6 +398,13 @@ else:
     # 去重空行
     while lines and lines[-1] == "":
         lines.pop()
+    lines.append("")
+    # 证据正文：每个客户一条精确挂载。`include` 会把它追加到主 compose 的 evidence
+    # 服务上（目标路径不同，不会盖掉 /etc 与 /sec 那两条）。
+    lines.append("  evidence:")
+    lines.append("    volumes:")
+    for cell in cells:
+        lines.append(f"      - {cell['host_dir']}/objects:{cell['objects_dir']}")
     lines.append("")
 
 # 用 write 而不是 print：末尾的 `lines.append("")` 已经给了换行，

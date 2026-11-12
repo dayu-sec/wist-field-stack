@@ -56,10 +56,14 @@ services:
       - ./configs/evidence:/etc/wist-evidence:ro
       # 密钥真值（DB URL / COS 凭据 / sink token）：`.wist/sec-value.yml`，0640。
       - ./.wist:/sec:ro
-      # 多客户的证据正文根：宿主 `${FIELD_DATA_ROOT}/<cust>/objects` 挂到容器内 `/data-customers`
-      # （配置里每个 cell 的 `objects.dir` 写 `/data-customers/<cust>/objects`）。
-      # 0.5.0 起**只**有这个根：没有默认对象目录，所以也没有单独的那条挂载。
-      - ${FIELD_DATA_ROOT:-./customers}:/data-customers
+      # 证据正文：**每个客户单独一条**，由 `configs/cells/compose.yml`（localize 从
+      # `cells.json` 生成）追加到本服务：`{host_dir}/objects:/data-customers/<cust>/objects`。
+      #
+      # 为什么**不**挂整个数据根（`${FIELD_DATA_ROOT}:/data-customers`）：那个目录下
+      # 还有每个客户的 PG 数据（`{host_dir}/pg`、`pg-atlas`）。递归挂进来会让
+      # `gops sys perms --apply` 把它们当成 evidence 的写目录，chown 成 `0:10001` + 组可写
+      # ——而 PostgreSQL（uid 999）拒绝组可写的建库目录/读不了自己的文件，atlas 会直接启不来。
+      # 所以这里一条也不挂，按客户精确挂。
     healthcheck:
       # 读监听（P0 明文 + 身份头；mTLS 在 P1），走 busybox，不依赖 curl。
       # 端口跟着 `EVIDENCE_READ_PORT` 走。

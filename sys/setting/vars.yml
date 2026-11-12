@@ -178,8 +178,10 @@ system:
   - name: FIELD_API_STORE_DIR
     value: ./data/field-api
 
-  # 多客户数据根：每个客户一个子目录 `<根>/<cust>/{pg,objects}`，由
-  # `sys/scripts/add-customer.sh` 建；容器内固定挂到 `/data-customers`。
+  # 多客户数据根：每个客户一个子目录 `<根>/<cust>/{pg,objects,pg-atlas}`，由
+  # `sys/scripts/add-customer.sh` 建；**对象目录按客户单独挂**到容器内
+  # `/data-customers/<cust>/objects`（PG 目录不挂给 evidence，否则 `gops sys perms`
+  # 会把它归成 evidence 的写权限，PostgreSQL 起不来）。
   # 默认值在栈根下（开发/单客户无感）；现场建议改成独立数据盘（如 `/srv/wist-field`）。
   - name: FIELD_DATA_ROOT
     value: ./customers

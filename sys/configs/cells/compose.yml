@@ -1,7 +1,9 @@
 # 客户 PG 编排片段的**种子**：这是 `configs/cells/compose.yml` 的入库骨架。
 #
 # 运行态的那份由 `sys/scripts/init-field-config.sh` 从 `configs/cells/cells.json`
-# **全量生成**（`gops sys localize` 的一部分），不要手改运行态那份。
+# **全量生成**（`gops sys localize` 的一部分），不要手改运行态那份。它同时负责：
+#   - 每个客户一对 postgres（证据库 / 拓扑库）；
+#   - 给 `evidence` 追加 `{host_dir}/objects:/data-customers/<cust>/objects`。
 #
 # 为什么放在 `configs/` 而不是 `sys/`：客户清单是**站点现场态**。
 #   `sys/` 整个目录在升级时会被包覆盖 —— 把客户定义写进去，一升级就全没了；
