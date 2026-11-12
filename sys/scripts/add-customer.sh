@@ -12,14 +12,17 @@
 #   --atlas-tenant-id  沿用现场已有的拓扑租户 UUID（不继承就会新生成一个）；
 #                 从 `psql -c 'select tenant_ref, tenant_id from tenant'` 里取。
 #   --apply       本脚本末尾直接跑 `gops sys localize && gops run start`
-#   --remove      注销：从 cells.json / compose 片段 / 密钥文件里移除该客户
+#   --remove      注销：从 cells.json 与密钥文件里移除该客户
 #   --purge-data  配合 --remove：同时删除它的两个容器与数据目录（**不可逆**）
 #
 # 它写的东西（都可重入，重复跑结果一样）：
 #   1. `<data-root>/<cust>/{pg,objects,pg-atlas}`    数据目录（证据 PG / 证据正文 / 拓扑 PG）
 #   2. `configs/cells/cells.json`                    客户清单（**唯一真相**，含固化的 `atlas_tenant_id`）
-#   3. `configs/cells/compose.yml`                   由清单全量生成的 compose 片段（证据库 + 拓扑库）
-#   4. `.wist/sec-value.yml` 的 `SEC_EVIDENCE_DB_URL_<CUST>`（幂等，0640）
+#   3. `.wist/sec-value.yml` 的 `SEC_EVIDENCE_DB_URL_<CUST>`（幂等，0640）
+#
+# **它不写 compose**：客户 PG 的编排片段（`configs/cells/compose.yml`）和
+# evidence/atlas/BFF 的客户清单一样，都是 localize 从 `cells.json` **全量生成**的产物。
+# 所以加完客户必须跑 `gops sys localize`，否则运行时还是旧清单。
 #
 # 为什么客户清单放 `configs/`：它是**站点现场态**。`sys/` 目录升级时会被包整体覆盖，
 # 客户定义写进去一升级就没了；`configs/` 在 `sys-prj.yml` 的 `protect` 里。
@@ -36,116 +39,12 @@ load_env_defaults "${STACK_ROOT}"
 
 CELLS_DIR="${STACK_ROOT}/configs/cells"
 CELLS_JSON="${CELLS_DIR}/cells.json"
-CELLS_COMPOSE="${CELLS_DIR}/compose.yml"
 SEC_FILE="${STACK_ROOT}/.wist/sec-value.yml"
 
 note() { echo "  $*"; }
 die() {
   echo "错误：$*" >&2
   exit 1
-}
-
-# 从 cells.json **全量重写** compose 片段（加客户 / 删客户两条路径共用）。
-# 不靠手改标记块：清单变了就整份重写，天然幂等。
-generate_cells_compose() {
-python3 - "${CELLS_JSON}" "${CELLS_COMPOSE}" <<'PY'
-import json
-import sys
-
-cells_path, compose_path = sys.argv[1:3]
-
-with open(cells_path, encoding="utf-8") as handle:
-    cells = json.load(handle)
-
-header = """# 由 `sys/scripts/add-customer.sh` 从 cells.json **全量生成**，不要手改。
-#
-# 每个客户一个独立 postgres：独立数据目录 = 独立故障域/备份粒度。
-# 不绑宿主端口（证据服务在 compose 网络上直连 `pg-<cust>:5432`）。
-# 要开放给运维排查，用 `add-customer.sh <cust> --pg-port <port>` 重新生成一次。
-"""
-
-lines = [header]
-if not cells:
-    lines.append("services: {}\n")
-else:
-    lines.append("services:")
-    for cell in cells:
-        cust = cell["cust_id"]
-        lines.append(f"  pg-{cust}:")
-        lines.append(
-            f"    container_name: ${{CELL_NAME:-wist-field-stack}}-pg-{cust}"
-        )
-        lines.append(
-            "    image: ${PG_REGISTRY:-docker.io/library}/postgres:${PG_IMAGE_TAG:-16}"
-        )
-        lines.append("    restart: unless-stopped")
-        lines.append("    environment:")
-        lines.append("      POSTGRES_DB: ${EVIDENCE_PG_DB:-wist_evidence}")
-        lines.append("      POSTGRES_USER: ${EVIDENCE_PG_USER:-evidence}")
-        lines.append("      POSTGRES_PASSWORD: ${EVIDENCE_PG_PASSWORD}")
-        lines.append("      TZ: ${TZ:-Asia/Shanghai}")
-        if cell.get("pg_port"):
-            lines.append("    ports:")
-            lines.append(
-                f'      - "${{PG_BIND_IP:-127.0.0.1}}:{cell["pg_port"]}:5432"'
-            )
-        lines.append("    volumes:")
-        lines.append(f'      - {cell["host_dir"]}/pg:/var/lib/postgresql/data')
-        lines.append("    healthcheck:")
-        lines.append(
-            '      test: ["CMD-SHELL", "pg_isready -U '
-            '${EVIDENCE_PG_USER:-evidence} -d ${EVIDENCE_PG_DB:-wist_evidence}"]'
-        )
-        lines.append("      interval: 5s")
-        lines.append("      timeout: 5s")
-        lines.append("      retries: 20")
-        lines.append("")
-
-        # 拓扑库（atlas）：同一套形态，换成 atlas 的库名 / 用户 / 目录。
-        # 早期登记的客户没有 atlas_* 字段 —— 跳过并提示重跑，别把半成品写进编排。
-        atlas_tenant = cell.get("atlas_tenant_id")
-        atlas_dir = cell.get("atlas_host_dir")
-        if not (atlas_tenant and atlas_dir):
-            print(
-                f"warning: 客户 {cust} 缺 atlas 登记（atlas_tenant_id/atlas_host_dir），"
-                f"本轮跳过拓扑库；重跑 add-customer.sh {cust} 补齐",
-                file=sys.stderr,
-            )
-            continue
-        lines.append(f"  pg-{cust}-atlas:")
-        lines.append(
-            f"    container_name: ${{CELL_NAME:-wist-field-stack}}-pg-{cust}-atlas"
-        )
-        lines.append(
-            "    image: ${PG_REGISTRY:-docker.io/library}/postgres:${PG_IMAGE_TAG:-16}"
-        )
-        lines.append("    restart: unless-stopped")
-        lines.append("    environment:")
-        lines.append("      POSTGRES_DB: ${ATLAS_PG_DB:-wist_atlas}")
-        lines.append("      POSTGRES_USER: ${ATLAS_PG_USER:-atlas}")
-        lines.append("      POSTGRES_PASSWORD: ${ATLAS_PG_PASSWORD}")
-        lines.append("      TZ: ${TZ:-Asia/Shanghai}")
-        lines.append("    volumes:")
-        # `atlas_host_dir` 已经是 `<数据根>/<cust>/pg-atlas`，不要再拼一层。
-        lines.append(f'      - {atlas_dir}:/var/lib/postgresql/data')
-        lines.append("    healthcheck:")
-        lines.append(
-            '      test: ["CMD-SHELL", "pg_isready -U '
-            '${ATLAS_PG_USER:-atlas} -d ${ATLAS_PG_DB:-wist_atlas}"]'
-        )
-        lines.append("      interval: 5s")
-        lines.append("      timeout: 5s")
-        lines.append("      retries: 20")
-        lines.append("")
-    # 去重空行
-    while lines and lines[-1] == "":
-        lines.pop()
-    lines.append("")
-
-with open(compose_path, "w", encoding="utf-8") as handle:
-    handle.write("\n".join(lines))
-PY
-  note "compose 片段已生成：${CELLS_COMPOSE}"
 }
 
 CUST=""
@@ -166,7 +65,7 @@ while [ $# -gt 0 ]; do
     --remove) REMOVE=1; shift ;;
     --purge-data) PURGE=1; shift ;;
     --apply) APPLY=1; shift ;;
-    -h | --help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,28p' "$0"; exit 0 ;;
     -*) die "未知参数：$1（--help 看用法）" ;;
     *)
       [ -z "${CUST}" ] || die "只能给一个 cust_id（已给：${CUST}）"
@@ -191,7 +90,7 @@ case "${PG_PORT}" in
   *[!0-9]*) die "--pg-port 必须是数字：'${PG_PORT}'" ;;
 esac
 
-command -v python3 >/dev/null 2>&1 || die "需要 python3（用来维护 cells.json 与生成 compose 片段）"
+command -v python3 >/dev/null 2>&1 || die "需要 python3（用来维护 cells.json）"
 
 # 数据根：相对路径相对栈根（与 compose 的解析口径一致）
 case "${DATA_ROOT}" in
@@ -222,7 +121,7 @@ ATLAS_PG_PASSWORD="${ATLAS_PG_PASSWORD:-}"
 
 # ── 注销一个客户（--remove）───────────────────────────────────────
 #
-# 只改「登记」：`cells.json` 条目、compose 片段、密钥文件里的 DB URL。
+# 只改「登记」：`cells.json` 条目与密钥文件里的 DB URL。
 # 容器与数据目录默认**保留**（删数据不可逆）；加 `--purge-data` 才一起删。
 # 为什么走脚本而不是手改：清单是唯一真相，手改很快就会被下一次全量生成抹平。
 if [ "${REMOVE}" = "1" ]; then
@@ -254,8 +153,6 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("\n")
 PY
   note "已从清单移除：${CUST}（${CELLS_JSON}）"
-
-  generate_cells_compose
 
   SEC_KEY_REMOVE="SEC_EVIDENCE_DB_URL_$(printf '%s' "${CUST}" | tr -c 'A-Za-z0-9_' '_' | tr '[:lower:]' '[:upper:]')"
   if [ -f "${SEC_FILE}" ] && grep -q "^${SEC_KEY_REMOVE}:" "${SEC_FILE}"; then
@@ -315,7 +212,7 @@ else
   note "已写入密钥：${SEC_KEY}（${SEC_FILE}）"
 fi
 
-# 3) 客户清单（cells.json）——**唯一真相**，compose 片段与渲染值都由它生成
+# 3) 客户清单（cells.json）——**唯一真相**，compose 片段与渲染值都由 localize 从它生成
 mkdir -p "${CELLS_DIR}"
 [ -f "${CELLS_JSON}" ] || printf '[]\n' >"${CELLS_JSON}"
 
@@ -375,12 +272,11 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 note "客户清单已更新：${CELLS_JSON}"
 
-generate_cells_compose
-
 # 5) 下一步
+
 echo
 note "客户 ${CUST} 已登记：证据库 + 拓扑库，atlas 租户 ${ATLAS_TENANT_ID}。下一步："
-note "  gops sys localize    # 渲染 evidence cells + configs/atlas/cells.json"
+note "  gops sys localize    # 从清单重生成：compose 片段 + evidence cells + configs/atlas/cells.json"
 note "  gops run start       # 起 pg-${CUST} / pg-${CUST}-atlas 并重载 evidence + atlas"
 note "  验证：docker compose --project-directory . -f sys/docker-compose.yml ps pg-${CUST} pg-${CUST}-atlas"
 note "  拓扑租户：psql -c 'select tenant_ref, tenant_id from tenant'  # 应看到 ${CUST}"

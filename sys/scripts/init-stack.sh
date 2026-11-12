@@ -48,8 +48,9 @@ align_ro_perms() {
 
 # 1′) 多客户的 compose 片段：主 compose 用 `include` 引入它，**文件必须存在**
 #     （否则 `docker compose` 直接报 `no such file or directory`）。
-#     首次从入库骨架（`services: {}`）拷一份；之后是现场态，升级不覆盖
-#     （`configs/` 在 `sys-prj.yml: protect` 里）。客户增删走 `add-customer.sh`。
+#     它由 `init-field-config.sh` 从 `cells.json` 全量生成（localize 的第①步，比这里早）；
+#     这行只是“没跑过 localize 就手动 `docker compose` / CI 校验”时的兜底。
+#     客户增删走 `add-customer.sh`，然后 `gops sys localize` 重生成。
 mkdir -p "${STACK_ROOT}/configs/cells"
 if [ ! -f "${STACK_ROOT}/configs/cells/compose.yml" ]; then
   cp "${STACK_ROOT}/sys/configs/cells/compose.yml" "${STACK_ROOT}/configs/cells/compose.yml"

@@ -22,6 +22,19 @@
   校验后把 `tenant=` 注入给 atlas；`wist-field-web` 0.2.9 让画布组件带上当前客户。
   多客户站点不再 501（单客户站点行为不变）。
 
+### 结构收敛（客户清单只有一个产生点）
+
+- **compose 片段的生成搬进 localize**：`configs/cells/compose.yml` 现在由
+  `sys/scripts/init-field-config.sh` 从 `configs/cells/cells.json` 全量生成（与 evidence /
+  atlas / BFF 的客户清单**同一个产生点**）。`add-customer.sh` 退化为「只改清单 + 提醒跑
+  localize」，不再顺手写编排 —— 以前「加了客户但没跑脚本」的现场会留下两份不一致。
+- **新增回归**：`dev/tests/customer-id-alignment.test.sh` 钉住 field **内部**五处客户 id 一致
+  （清单 / compose 片段 / evidence cells / atlas cells / BFF `allowed_tenants`），沙箱从零
+  生成 + 现场 `configs/` 双段校验；`dev/tests/add-customer.test.sh` 钉住登记是否幂等、
+  注销只退登记（数据默认保留）、以及「目录末段不是 cust_id 时拒绝 `--purge-data`」。
+- 口径说明：这些校验**只做 field 内部自洽**。`cells.json` 不服务中心 / 网关，客户 id 与
+  网关绑定的 `tenant_id` 是否相同是网关侧的事，两套系统**没有共享校验**。
+
 > 本版本把 M1.7 的 S1–S5 全接上了；剩下 G1（网关 OML 改发客户号）—— 那一步要**和
 > 切 OML 同一轮**做，不然旧 OML 发的 UUID 会被当成未登记客户拒掉（详见
 > `docs/atlas-m1.7-tasks.md` §6）。

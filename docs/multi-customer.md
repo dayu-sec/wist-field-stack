@@ -306,7 +306,7 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 
 | 步 | 在哪 | 做什么 | 漏了会怎样 |
 |---|---|---|---|
-| 1 | 栈 | 加 PG 服务 + values 里加一条 cell（cust_id / DB URL / 对象目录）。atlas 按 §5.7 实施后还要加它的拓扑库 | 该客户数据落 default 库（混库） |
+| 1 | 栈 | `sys/scripts/add-customer.sh <cust_id>`（建数据目录 + 登记 cells + 写该客户的 DB 密钥；证据库 / 拓扑库各一个 PG） | 该客户数据落 default 库（混库） |
 | 2 | cred | 签发时把该客户加进 `resources.tenants` | 令牌看不到该客户；存储里有数据也读不到 |
 | 3 | 栈 | `gops sys localize && gops run start` | 配置没生效 |
 
@@ -316,13 +316,25 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 ### 注销一个客户
 
 ```bash
-sys/scripts/add-customer.sh --remove <cust_id>              # 只注销登记（清单 / compose / 密钥）
+sys/scripts/add-customer.sh --remove <cust_id>              # 只注销登记（清单 / 密钥）
 sys/scripts/add-customer.sh --remove <cust_id> --purge-data  # 同时删两个容器与数据目录（不可逆）
 ```
 
-为什么也走脚本：`configs/cells/cells.json` 是**唯一真相**，compose 片段由它全量重写；
-手改清单很快会被下一次生成抹平。注销后要 `gops sys localize && gops run start` ——
+为什么也走脚本：`configs/cells/cells.json` 是**唯一真相**；compose 片段与 evidence / atlas /
+BFF 的客户清单都是 `gops sys localize` 从它**全量生成**的，手改很快会被下一次生成抹平。
+加 / 注销后要 `gops sys localize && gops run start` ——
 evidence / atlas / BFF 都是**启动时**读清单与白名单的，光改文件不重建容器不会生效。
+
+登记与生成出的四份清单必须一致（客户 id 对不上就出现「证据能写、拓扑看不到」这种半通不通）：
+
+```bash
+dev/tests/customer-id-alignment.test.sh   # 沙箱从零生成 + 现场 configs/ 比对
+dev/tests/add-customer.test.sh            # 登记 / 幂等 / 注销 / 删除保护
+```
+
+那个校验 **只管 field 内部**（`cells.json` / compose 片段 / evidence cells / atlas cells /
+BFF `allowed_tenants`）。客户 id 还必须是网关绑定的 `tenant_id`，但那是网关侧的事，
+两套系统**没有共享校验**（见 §6 第 1 步与网关栈的 `identity/gwlinkd/business-identity.json`）。
 
 ## 7. 兼容与迁移
 

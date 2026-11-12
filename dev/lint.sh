@@ -9,7 +9,7 @@
 #      （gateway 栈 2026-10-23 连踩两次：报错文案被执行、restore 脚本真跑了一遍体检），
 #      而 SC2006 属于 style 级，`-S warning` 会把它过滤掉。
 #
-# 只扫本仓自己维护的 shell：`sys/scripts/`（随包发布）、`dev/`、`dev/tests/`。
+# 只扫本仓自己维护的 shell：`sys/scripts/`（随包发布）、`dev/`、`dev/tests/`（含夹具 `lib/`）。
 # 用法：`./dev/lint.sh`（退出码 0 = 干净）
 set -euo pipefail
 
@@ -21,7 +21,7 @@ if ! command -v shellcheck >/dev/null 2>&1; then
   exit 1
 fi
 
-files=(sys/scripts/*.sh sys/scripts/lib/*.sh dev/*.sh dev/tests/*.sh)
+files=(sys/scripts/*.sh sys/scripts/lib/*.sh dev/*.sh dev/tests/*.sh dev/tests/lib/*.sh)
 
 echo "== shellcheck -S warning（错误 / 警告）：${#files[@]} 个脚本"
 shellcheck -S warning -f gcc "${files[@]}"

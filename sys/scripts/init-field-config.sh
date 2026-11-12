@@ -8,6 +8,8 @@
 #   configs/field-api/field-api.value.json    BFF 配置模板的渲染值
 #   configs/field-api/cred.value.json         cred 接入模板的渲染值
 #   configs/evidence/wist-evidence.value.json 证据服务模板的渲染值
+#   configs/atlas/cells.json                  atlas 的客户→库路由
+#   configs/cells/compose.yml                 客户 PG 的编排片段（compose `include` 引它）
 #
 # 值从哪来：**栈根 `.env`**（`gops sys localize` 生成，含 `values/<系统>/sys_value.yml` 的现场覆盖），
 # 显式环境变量优先（gops localize 会把合并后的值直接注入流程环境）。
@@ -135,8 +137,8 @@ FIELD_API_CRED_CA_FILE="$(text_like FIELD_API_CRED_CA_FILE "${FIELD_API_CRED_CA_
 FIELD_API_CRED_INSECURE_TLS="$(text_like FIELD_API_CRED_INSECURE_TLS "${FIELD_API_CRED_INSECURE_TLS:-false}")"
 FIELD_API_REQUIRE_CRED_SIGNATURE="$(text_like FIELD_API_REQUIRE_CRED_SIGNATURE "${FIELD_API_REQUIRE_CRED_SIGNATURE:-false}")"
 
-# 渲染值只在内容变化时落盘
-write_json() {
+# 渲染值只在内容变化时落盘（compose 片段也走它：YAML 同样幂等，不碰 mtime）
+write_rendered() {
   local dst="$1"
   shift
   local tmp
@@ -176,7 +178,7 @@ prune_bogus_dirs() {
 prune_bogus_dirs
 
 # ① BFF：`[evidence]` / `[atlas]` / `[metrics]` / `[integration]`
-write_json "${FIELD_API_DIR}/field-api.value.json" cat <<EOF
+write_rendered "${FIELD_API_DIR}/field-api.value.json" cat <<EOF
 {
   "evidence_read_port": ${EVIDENCE_READ_PORT},
   "evidence_tenant": "${EVIDENCE_TENANT}",
@@ -194,7 +196,7 @@ EOF
 #
 # `require_signature` / `insecure_tls` 用**字符串**（`"true"`）而不是 bool：
 # cred-peer 的配置解析两种都认，但字符串能原样表达“这一版还没定”的空值。
-write_json "${FIELD_API_DIR}/cred.value.json" cat <<EOF
+write_rendered "${FIELD_API_DIR}/cred.value.json" cat <<EOF
 {
   "field_api_audience": "${FIELD_API_AUDIENCE}",
   "field_api_require_cred_signature": "${FIELD_API_REQUIRE_CRED_SIGNATURE}",
@@ -237,7 +239,7 @@ PY
 )"
 fi
 
-write_json "${EVIDENCE_DIR}/wist-evidence.value.json" cat <<EOF
+write_rendered "${EVIDENCE_DIR}/wist-evidence.value.json" cat <<EOF
 {
   "evidence_read_port": ${EVIDENCE_READ_PORT},
   "evidence_cells": ${EVIDENCE_CELLS_JSON}
@@ -288,4 +290,114 @@ for cell in cells:
 print(json.dumps({"default_tenant": None, "cells": out}, ensure_ascii=False))
 PY
 )"
-write_json "${ATLAS_DIR}/cells.json" printf '%s\n' "${ATLAS_CELLS_JSON}"
+write_rendered "${ATLAS_DIR}/cells.json" printf '%s\n' "${ATLAS_CELLS_JSON}"
+
+# ⑤ 客户 PG 的 compose 片段：同一份清单 → `configs/cells/compose.yml`。
+#
+# 为什么归 localize：这份文件是**编排产物**，不是手写配置。以前由 `add-customer.sh`
+# 顺手写，结果是「加了客户但没再跑脚本」的现场（手工恢复了一份清单）会留下两套不一致；
+# 现在与 evidence/atlas 的客户路由同一个产生点、同一个时机（localize）。
+# `add-customer.sh` 只改清单，不再碰这里。
+#
+# 文件**必须存在**：主 compose 用 `include` 引它，缺文件 `docker compose` 直接报错。
+# 没有客户就是 `services: {}`（与 `sys/configs/cells/compose.yml` 种子一致）。
+CELLS_DIR="${STACK_ROOT}/configs/cells"
+CELLS_COMPOSE="${CELLS_DIR}/compose.yml"
+mkdir -p "${CELLS_DIR}"
+write_rendered "${CELLS_COMPOSE}" python3 - "${CELLS_JSON}" <<'PY'
+import json
+import sys
+
+cells_path = sys.argv[1]
+try:
+    with open(cells_path, encoding="utf-8") as handle:
+        cells = json.load(handle)
+except (FileNotFoundError, json.JSONDecodeError):
+    cells = []
+
+header = """# 由 `sys/scripts/init-field-config.sh` 从 `configs/cells/cells.json` **全量生成**
+# （`gops sys localize` 的一部分），不要手改：下一次 localize 会盖掉。
+#
+# 每个客户一个独立 postgres：独立数据目录 = 独立故障域/备份粒度。
+# 不绑宿主端口（证据服务在 compose 网络上直连 `pg-<cust>:5432`）。
+# 要开放给运维排查，用 `add-customer.sh <cust> --pg-port <port>` 重新登记。
+"""
+
+lines = [header]
+if not cells:
+    lines.append("services: {}\n")
+else:
+    lines.append("services:")
+    for cell in cells:
+        cust = cell["cust_id"]
+        lines.append(f"  pg-{cust}:")
+        lines.append(f"    container_name: ${{CELL_NAME:-wist-field-stack}}-pg-{cust}")
+        lines.append(
+            "    image: ${PG_REGISTRY:-docker.io/library}/postgres:${PG_IMAGE_TAG:-16}"
+        )
+        lines.append("    restart: unless-stopped")
+        lines.append("    environment:")
+        lines.append("      POSTGRES_DB: ${EVIDENCE_PG_DB:-wist_evidence}")
+        lines.append("      POSTGRES_USER: ${EVIDENCE_PG_USER:-evidence}")
+        lines.append("      POSTGRES_PASSWORD: ${EVIDENCE_PG_PASSWORD}")
+        lines.append("      TZ: ${TZ:-Asia/Shanghai}")
+        if cell.get("pg_port"):
+            lines.append("    ports:")
+            lines.append(f'      - "${{PG_BIND_IP:-127.0.0.1}}:{cell["pg_port"]}:5432"')
+        lines.append("    volumes:")
+        lines.append(f'      - {cell["host_dir"]}/pg:/var/lib/postgresql/data')
+        lines.append("    healthcheck:")
+        lines.append(
+            '      test: ["CMD-SHELL", "pg_isready -U '
+            '${EVIDENCE_PG_USER:-evidence} -d ${EVIDENCE_PG_DB:-wist_evidence}"]'
+        )
+        lines.append("      interval: 5s")
+        lines.append("      timeout: 5s")
+        lines.append("      retries: 20")
+        lines.append("")
+
+        # 拓扑库（atlas）：同一套形态，换成 atlas 的库名 / 用户 / 目录。
+        # 早期登记的客户没有 atlas_* 字段 —— 跳过并提示重跑，别把半成品写进编排。
+        atlas_tenant = cell.get("atlas_tenant_id")
+        atlas_dir = cell.get("atlas_host_dir")
+        if not (atlas_tenant and atlas_dir):
+            print(
+                f"warning: 客户 {cust} 缺 atlas 登记（atlas_tenant_id/atlas_host_dir），"
+                f"本轮跳过拓扑库；重跑 add-customer.sh {cust} 补齐",
+                file=sys.stderr,
+            )
+            continue
+        lines.append(f"  pg-{cust}-atlas:")
+        lines.append(
+            f"    container_name: ${{CELL_NAME:-wist-field-stack}}-pg-{cust}-atlas"
+        )
+        lines.append(
+            "    image: ${PG_REGISTRY:-docker.io/library}/postgres:${PG_IMAGE_TAG:-16}"
+        )
+        lines.append("    restart: unless-stopped")
+        lines.append("    environment:")
+        lines.append("      POSTGRES_DB: ${ATLAS_PG_DB:-wist_atlas}")
+        lines.append("      POSTGRES_USER: ${ATLAS_PG_USER:-atlas}")
+        lines.append("      POSTGRES_PASSWORD: ${ATLAS_PG_PASSWORD}")
+        lines.append("      TZ: ${TZ:-Asia/Shanghai}")
+        lines.append("    volumes:")
+        # `atlas_host_dir` 已经是 `<数据根>/<cust>/pg-atlas`，不要再拼一层。
+        lines.append(f"      - {atlas_dir}:/var/lib/postgresql/data")
+        lines.append("    healthcheck:")
+        lines.append(
+            '      test: ["CMD-SHELL", "pg_isready -U '
+            '${ATLAS_PG_USER:-atlas} -d ${ATLAS_PG_DB:-wist_atlas}"]'
+        )
+        lines.append("      interval: 5s")
+        lines.append("      timeout: 5s")
+        lines.append("      retries: 20")
+        lines.append("")
+    # 去重空行
+    while lines and lines[-1] == "":
+        lines.pop()
+    lines.append("")
+
+# 用 write 而不是 print：末尾的 `lines.append("")` 已经给了换行，
+# print 会再多一个空行（与旧产物不再逐字节一致，会让一次 localize 白重写一遍）。
+sys.stdout.write("\n".join(lines))
+PY

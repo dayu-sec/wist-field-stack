@@ -1,4 +1,7 @@
-# 每个客户的 postgres（由 `sys/scripts/add-customer.sh` 全量重写，不要手改）。
+# 客户 PG 编排片段的**种子**：这是 `configs/cells/compose.yml` 的入库骨架。
+#
+# 运行态的那份由 `sys/scripts/init-field-config.sh` 从 `configs/cells/cells.json`
+# **全量生成**（`gops sys localize` 的一部分），不要手改运行态那份。
 #
 # 为什么放在 `configs/` 而不是 `sys/`：客户清单是**站点现场态**。
 #   `sys/` 整个目录在升级时会被包覆盖 —— 把客户定义写进去，一升级就全没了；
@@ -8,5 +11,6 @@
 #   网络/健康检查/重启策略一致），而不是脚本自己 `docker run` 出一批游离容器。
 #
 # 没有客户时保持空（`services: {}`）—— 文件必须存在，否则 include 会报
-# `no such file or directory`。`init-stack.sh` 会在 localize 时兜底创建。
+# `no such file or directory`。`init-field-config.sh` 每次 localize 都会重写它
+# （含无客户时的这一份），本文件只在「还没跑过 localize」（如 CI 校验）时兜底。
 services: {}
