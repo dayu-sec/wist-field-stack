@@ -359,6 +359,9 @@ lines.append("      retries: 20")
 
 新增（放在 evidence cells 生成之后）：
 
+> 下面是当时的草案；其中传参的 `EVIDENCE_TENANT` 已在 0.5.2 删除（客户清单是唯一来源，
+> 默认租户那一路已去掉）。照抄时把那个参数去掉即可。
+
 ```bash
 ATLAS_DIR="${STACK_ROOT}/configs/atlas"
 ATLAS_CELLS_JSON='{"default_tenant":null,"cells":[]}'

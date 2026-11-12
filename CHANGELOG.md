@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 0.5.2-alpha · 2026-11-12
+
+**清掉默认库遗留的两个死旋钮**（只动栈，不动镜像）。
+
+- 删 `EVIDENCE_TENANT`（默认值 `c-001`）：它只服务「没有客户集合时查谁」那个兜底，
+  而现在客户集合就是已登记的 cell（至少一个，否则 evidence 起不来），所以它永远走不到。
+  留着反而会在 `allowed_tenants` 空的时候造成一个“看起来能跑”的站点。
+  连带：`[evidence] default_tenant` 不再渲染；`.env.example` / `vars.yml` / merged_vars
+  同步删除（drift 用例绿）。
+- 删 `.wist/sec-value.yml` 里的 `SEC_EVIDENCE_DB_URL`（默认库的 DSN，已无引用方）。
+- 删两个旧命名卷 `wist-field-stack_{evidence,atlas}-pgdata`（默认库的数据，容器已在 0.5.1 移除）。
+- README 的「多客户（切换式）」整节改写为「并行登记」，绑定契约改成
+  `客户 ID == cells.json 的 cust_id == 数据目录名 == 数据面 payload 的 cust_id`。
+
 ## 0.5.1-alpha · 2026-11-12
 
 **修 0.5.0 没拆干净的两处默认库依赖**（`wist-atlas` → `v0.5.1-alpha`）。

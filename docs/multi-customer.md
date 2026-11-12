@@ -349,7 +349,7 @@ BFF `allowed_tenants`）。客户 id 还必须是网关绑定的 `tenant_id`，�
 | 场景 | 行为 |
 |---|---|
 | 单客户站点（现状） | 不加 `[[storage.cell]]`、令牌无 `resources` → **零改动**，读走 `default_tenant` |
-| 已有数据的单客户站点要变多客户 | 把现有 PG/对象目录登记为**第一个 cell**（cust_id = 现有 `EVIDENCE_TENANT`），其余客户新加 |
+| 已有数据的单客户站点要变多客户 | 把现有 PG/对象目录登记为**第一个 cell**（`cust_id` = 现有客户号，用 `add-customer.sh <cust_id>`），其余客户新加 |
 | 令牌升级 | 老令牌没有 `tenants` → 回落 `default_tenant`（决策 4） |
 
 ## 8. 安全

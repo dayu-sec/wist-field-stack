@@ -246,7 +246,6 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 | `VM_BIND_IP` / `VM_HOST_PORT` | `127.0.0.1:18428` | VictoriaMetrics：数据面 remote write + 运维查询 |
 | `ATLAS_PROBE` / `ATLAS_PROBE_INTERVAL_SECS` | `on` / `300` | atlas 写探针（往保留租户写最小 DSNAP） |
 | `EVIDENCE_READ_PORT` | `8443` | 证据读监听（容器内）。**一个来源**：evidence 的 `[read].listen_addr`、compose 健康检查、field-api 的 `evidence.base_url` 都从它来 |
-| `EVIDENCE_TENANT` | `c-001` | 证据服务的租户 = 客户 id（BFF 读的是这个客户的数据；一页一个客户，**每个站点不同**）|
 | `PG_BIND_IP` | `127.0.0.1` | 客户 PG 绑宿主端口的默认监听地址（只在该客户 `--pg-port` 时才绑） |
 | `CREDENTIALS_BIND_IP` / `CREDENTIALS_HOST_PORT` | `0.0.0.0:18802` | cred 推送摘要 / 心跳的 mTLS 端口 |
 | `FIELD_API_ADVERTISE_HOST` | 空（**必填**） | 收数地址的主机名 = 证书 SAN = cred 拨号地址；不填 field-api 启动期就拒 |
@@ -268,8 +267,9 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 | `.wist/sec-value.yml` | `${SEC_...}` 的真值（DB URL、COS 凭据），**不入库** |
 
 - 写端点不校验身份（内网可信）；P1 换成 HTTPS 双向认证；
-- 两处 `tenant`（evidence 的 sink 声明与 field-api 的读身份）必须一致 ——
-  field-api 那份现在由 `EVIDENCE_TENANT` 渲染。
+- 客户集合只有一个来源：`configs/cells/cells.json`（渲染成 evidence 的 cells 与 BFF 的
+  `allowed_tenants`）。数据面 body 里的 `cust_id` 必须等于登记过的客户号，否则 evidence 回
+  `400 evidence_customer_unregistered`。
 
 ### 证据正文存在哪（两种模式）
 
@@ -314,10 +314,10 @@ retention_hours = 24     # 能活多久；实际每小时扫一次
 > —— 路由 → 序列化 → 对象 → 索引，而不只是「进程活着」。写端口的连通性也包含在内。
 > 需要 `wist-evidence ≥ v0.1.12`（尚未发布）。
 
-## 多客户（切换式）
+## 多客户（并行登记）
 
-**一个站点跑一套栈、同一时刻服务一个客户。** 多客户 = 多份数据落点 + 切指针，
-不是多套栈、也不是共享存储上的多租户（BFF 不做多租户授权，`EVIDENCE_TENANT` 仍是单值）。
+**一个站点、一套栈、多个客户并存。** 每个客户有自己的 PG 与对象目录（物理隔离），
+用前在页面上选客户；BFF 只拿客户集合（`allowed_tenants`），不允许猜默认值。
 
 ### 数据落点
 
@@ -335,10 +335,12 @@ retention_hours = 24     # 能活多久；实际每小时扫一次
 ### 绑定契约：三处必须同名
 
 ```
-客户 ID == values 的 EVIDENCE_TENANT == 数据路径里的目录名 == 数据面写入 payload 的 cust_id
+客户 ID == cells.json 的 cust_id == 数据路径里的目录名 == 数据面 payload 的 cust_id
+          （且要等于网关绑定的 tenant_id）
 ```
 
-前三个在栈内；**第四个不在**。切换后列表还是空，最常见的原因就是数据面还在投旧 cust_id。
+前三个在栈内（`dev/tests/customer-id-alignment.test.sh` 钉住）；**最后一个不在**：
+数据面还在投旧 `cust_id` 时，页面就是空的 —— 这也是最常见的“配好了却没数据”。
 
 ### 切一个客户
 

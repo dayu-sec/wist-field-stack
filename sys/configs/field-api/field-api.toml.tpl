@@ -40,15 +40,13 @@ required_roles = ["read"]
 # 与证据服务的读监听、compose 健康检查同一个来源。
 [evidence]
 base_url = "http://evidence:{{evidence_read_port}}"
-# 租户就是客户 id（证据服务的租户 = 客户）。每个站点不同，所以走渲染值而不是写死。
+# 客户集合（渲染自 `configs/cells/cells.json`）——**没有默认租户**。
 #
-# 单客户站点：它就是唯一客户（行为与旧版一致）。
-# 多客户站点：它是“没有可选集合时的兜底”（见下面的 allowed_tenants），
-# **不会**返回给前端——前端只拿 tenants 集合，不允许猜默认值。
-default_tenant = "{{evidence_tenant}}"
-# 多客户：这套栈服务的客户集合（渲染自 `configs/cells/cells.json`）。
-# 只有一个时服务端自动用；多个时必须由调用方显式 `?tenant=` 指定（否则 400）。
-# 空数组 = 单客户站点（上面的 default_tenant 就是唯一客户）。
+# 以前这里还有一个 `default_tenant`，服务的是「没有可选集合时该查谁」。现在客户集合就是
+# 已登记的 cell，至少一个（evidence 没 cell 直接起不来），所以那个兜底永远用不上；
+# 留着反而会诱人在 allowed_tenants 空的时候产生一个“看起来能跑”的站点。
+#
+# 只有一个客户时服务端自动用；多个时必须由调用方显式 `?tenant=` 指定（否则 400）。
 allowed_tenants = [{{{evidence_allowed_tenants}}}]
 scopes = ["evidence:read"]
 max_sensitivity = "paths"

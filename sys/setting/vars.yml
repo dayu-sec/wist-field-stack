@@ -97,13 +97,6 @@ system:
   - name: EVIDENCE_READ_PORT
     value: 8443
 
-  # 证据服务的**租户**（= 客户 id）：BFF 用它作为 `[evidence].tenant`，读的都是这个客户的数据。
-  # 一页一个客户，所以每个站点不同 —— 现场在 `values/<系统>/sys_value.yml` 覆盖。
-  # 0.3.0 之前它是写死在 `sys/configs/field-api/field-api.toml` 里的字面量（`c-001`），
-  # 改成模板后被渲染，现场不用再改配置（改了也会被下一次 localize 盖回去）。
-  - name: EVIDENCE_TENANT
-    value: c-001
-
   # 资产拓扑写端口：给数据面 wparse 投 DSNAP（与证据写端口同一个道理），
   # 默认只绑回环；现场改成数据面所在网段的内网地址。
   - name: ATLAS_INGEST_BIND_IP

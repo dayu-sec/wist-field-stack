@@ -90,7 +90,6 @@ text_like() {
 }
 
 EVIDENCE_READ_PORT="$(port_like EVIDENCE_READ_PORT "$(need EVIDENCE_READ_PORT)")"
-EVIDENCE_TENANT="$(text_like EVIDENCE_TENANT "$(need EVIDENCE_TENANT)")"
 
 # 多客户：BFF 的可选客户集合来自客户清单（与 evidence 的 cells 同源，避免两份名单分叉）。
 EVIDENCE_ALLOWED_TENANTS="[]"
@@ -181,7 +180,6 @@ prune_bogus_dirs
 write_rendered "${FIELD_API_DIR}/field-api.value.json" cat <<EOF
 {
   "evidence_read_port": ${EVIDENCE_READ_PORT},
-  "evidence_tenant": "${EVIDENCE_TENANT}",
   "evidence_allowed_tenants": "${EVIDENCE_ALLOWED_LITERAL_JSON}",
   "evidence_sink_public_host": "${EVIDENCE_SINK_PUBLIC_HOST}",
   "evidence_sink_host_port": ${EVIDENCE_SINK_HOST_PORT},
