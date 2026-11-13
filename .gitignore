@@ -25,3 +25,6 @@ sys/*/mods
 
 # 客户数据根（`FIELD_DATA_ROOT` 默认 `./customers`：每客户 pg/ 与 objects/）
 /customers/
+
+# 云资产采集的运行态（`HARVEST_RUN_DIR`：spool 收齐之前不发送；state 放租约/报告/账单分片）
+/harvest-run/

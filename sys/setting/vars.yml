@@ -47,7 +47,7 @@ system:
   - name: EVIDENCE_SINK_BIND_IP
     value: 127.0.0.1
   - name: EVIDENCE_SINK_HOST_PORT
-    value: 18800
+    value: 6800
   # 「接入」页展示 / copy 的那条写端点的**主机名**（数据面视角，不是容器内地址）。
   # 每个部署实例不同：数据面看到的本机名 / 内网 IP / 对外域名。
   # 端口不在这里重复 —— 仍由上面的 EVIDENCE_SINK_HOST_PORT 单点决定。
@@ -102,7 +102,7 @@ system:
   - name: ATLAS_INGEST_BIND_IP
     value: 127.0.0.1
   - name: ATLAS_INGEST_HOST_PORT
-    value: 18801
+    value: 6801
   # 同上：资产拓扑写端点展示用的主机名（端口用 ATLAS_INGEST_HOST_PORT）。
   - name: ATLAS_INGEST_PUBLIC_HOST
     value: 127.0.0.1
@@ -122,7 +122,7 @@ system:
   - name: VM_BIND_IP
     value: 127.0.0.1
   - name: VM_HOST_PORT
-    value: 18428
+    value: 6802
   # 数据面视角的 VM 主机名。与 EVIDENCE_SINK_PUBLIC_HOST / ATLAS_INGEST_PUBLIC_HOST
   # 同一性质、同一粒度：**每条输入通道各一个**。三者在这台机上可能恰好同值，
   # 但它们是三条可分开寻址的通道（比如 VM 走内网、证据走 VPN），不能合成一个。
@@ -132,6 +132,58 @@ system:
   # 保留期：与网关栈同一档（月度运维窗口）。
   - name: VM_RETENTION
     value: 30d
+
+  # ── 云资产采集（wist-harvest）：**可选服务**，compose profile = harvest ──────
+  #
+  # 它不做界面：只去云 API 拉资产事实，再把「一个采集组的完整快照」发给**数据面的
+  # warp-parse**（`harvest_1` source）。所以**没有宿主端口**，启用开关是两个变量。
+  #
+  # 三件套缺一件的表现（都是当场能看到，不是静默错数据）：
+  #   缺 HARVEST_TENANT_ID     → 数据源渲染成「只有注释」→ 容器 `source_config` FAIL
+  #   缺 HARVEST_SINK_ENDPOINT → 同上（快照发不出去就不采）
+  #   COMPOSE_PROFILES 没加 harvest → 容器根本不会起（配置留着，下次生效）
+  - name: HARVEST_IMAGE_TAG
+    value: v0.1.0-alpha
+  # 运行态：spool（收齐之前不发送）与 state（租约 / 报告 / **账单分片**）。
+  # 现场建议换成独立数据盘：state/cost 是 wist-cost 的输入。
+  - name: HARVEST_RUN_DIR
+    value: ./harvest-run
+  # 数据平面 sink：`host:port`，指向 warp-parse 的 `harvest_1` source（framing=len）。
+  # **本栈不跑 wparse**，所以这必须是「从 harvest 容器可达」的外部地址。空 = 不启用。
+  - name: HARVEST_SINK_ENDPOINT
+    value: ""
+  # 数据源身份：租户 = 客户 id（与 `configs/cells/cells.json` 的 cust_id 同源）。
+  # 空 = 不渲染数据源（采集不启用）—— 绝不拿空租户去采。
+  - name: HARVEST_TENANT_ID
+    value: ""
+  # source_code 是**下游的资源匹配键**：换实现（换厂商 / 换语言）不能换它。
+  - name: HARVEST_SOURCE_CODE
+    value: tencent-cloud-prod
+  # 厂商：tencent | aws（渲染成 harvest 认的字面量 TENCENT_CLOUD / AWS）。
+  # 凭据键名与 `[vendor_options]` 跟着它变（腾讯云 secret_id/secret_key，AWS access_key_id/...）。
+  - name: HARVEST_VENDOR
+    value: tencent
+  - name: HARVEST_ENV_REF
+    value: prod
+  # 地域范围：auto（运行时 DescribeRegions，只取 AVAILABLE）或逗号分隔的固定列表。
+  - name: HARVEST_REGIONS
+    value: auto
+  # 每日定点（Asia/Shanghai）+ 抖动上限（秒）：多站点错峰，避免同时打云 API。
+  - name: HARVEST_RUN_AT
+    value: "00:30"
+  - name: HARVEST_JITTER_SECONDS
+    value: "300"
+  # 账单账号（腾讯云 UIN / AWS 账号 id）：空 = 只采资产，不渲染成本链路。
+  # 账单接口按它记账，与凭据没有推导关系，所以必须显式给。
+  - name: HARVEST_BILLING_ACCOUNT
+    value: ""
+  # AWS 分区（只在 vendor=aws 时渲染）：aws | aws-cn | aws-us-gov。
+  - name: HARVEST_AWS_PARTITION
+    value: aws
+  # 启用哪些 compose profile（**逗号分隔；空 = 不启用任何可选服务**）。
+  # 目前只有一个可选服务：`harvest`（云资产采集）。
+  - name: COMPOSE_PROFILES
+    value: ""
 
   # 两个 PG（证据 / 资产生命周期不同，刻意分开）。
   # **每个客户各一对**，由 `sys/scripts/add-customer.sh` 建、`configs/cells/compose.yml` 编排；

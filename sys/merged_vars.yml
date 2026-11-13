@@ -24,7 +24,7 @@ system:
 - name: EVIDENCE_SINK_BIND_IP
   value: 127.0.0.1
 - name: EVIDENCE_SINK_HOST_PORT
-  value: 18800
+  value: 6800
 - name: EVIDENCE_SINK_PUBLIC_HOST
   value: 127.0.0.1
 - name: CREDENTIALS_BIND_IP
@@ -48,7 +48,7 @@ system:
 - name: ATLAS_INGEST_BIND_IP
   value: 127.0.0.1
 - name: ATLAS_INGEST_HOST_PORT
-  value: 18801
+  value: 6801
 - name: ATLAS_INGEST_PUBLIC_HOST
   value: 127.0.0.1
 - name: ATLAS_PROBE
@@ -62,11 +62,37 @@ system:
 - name: VM_BIND_IP
   value: 127.0.0.1
 - name: VM_HOST_PORT
-  value: 18428
+  value: 6802
 - name: METRICS_SINK_PUBLIC_HOST
   value: 127.0.0.1
 - name: VM_RETENTION
   value: 30d
+- name: HARVEST_IMAGE_TAG
+  value: v0.1.0-alpha
+- name: HARVEST_RUN_DIR
+  value: ./harvest-run
+- name: HARVEST_SINK_ENDPOINT
+  value: ''
+- name: HARVEST_TENANT_ID
+  value: ''
+- name: HARVEST_SOURCE_CODE
+  value: tencent-cloud-prod
+- name: HARVEST_VENDOR
+  value: tencent
+- name: HARVEST_ENV_REF
+  value: prod
+- name: HARVEST_REGIONS
+  value: auto
+- name: HARVEST_RUN_AT
+  value: 00:30
+- name: HARVEST_JITTER_SECONDS
+  value: '300'
+- name: HARVEST_BILLING_ACCOUNT
+  value: ''
+- name: HARVEST_AWS_PARTITION
+  value: aws
+- name: COMPOSE_PROFILES
+  value: ''
 - name: PG_BIND_IP
   value: 127.0.0.1
 - name: EVIDENCE_PG_DB

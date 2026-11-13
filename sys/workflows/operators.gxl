@@ -46,6 +46,24 @@ mod operators {
       file : "./configs/evidence/wist-evidence.value.json"
     );
 
+    // ④b 云资产采集（wist-harvest）服务配置：sink 端点是**现场值**（本栈不跑 wparse，
+    //     采集往数据面投），所以走渲染而不能写死。渲染值里同时带「启不启用」，
+    //     关掉时这份文件仍然存在且可解释（详见脚本 ⑥）。
+    gx.tpl (
+      tpl  : "./sys/configs/harvest/harvest.toml.tpl",
+      dst  : "./configs/harvest/harvest.toml",
+      file : "./configs/harvest/harvest.value.json"
+    );
+
+    // ④c 云资产采集的数据源：`sources.d/source.toml`。
+    //     文件名是**字面量**（gx.tpl 的 dst 不认变量），容器那边的 `--source` 写的是同一个名字；
+    //     数据源身份是文件里的 `source_code`，**不是文件名** —— 两边都不许自取名字。
+    gx.tpl (
+      tpl  : "./sys/configs/harvest/sources.d/source.toml.tpl",
+      dst  : "./configs/harvest/sources.d/source.toml",
+      file : "./configs/harvest/harvest.value.json"
+    );
+
     // ⑤ 渲染前端站点配置。**没有渲染值**（`data: "{}"`）：这份 tpl 里没有站点相关的量
     //    （`server_name _` 是有意的 —— 入口只有一张证书、一个 server），它走 tpl 只为了
     //    「跟版本走」：新版本给 nginx 加了 `location /__init`，升级后不会再停留在旧文件上。
@@ -55,9 +73,10 @@ mod operators {
       data : "{}"
     );
 
-    // ⑥ 运行态备料（幂等）：目录 / 密钥文件 / 自注册 setup code / cred 材料自检 / web TLS。
+    // ⑥ 运行态备料（幂等）：目录 / 密钥文件 / 自注册 setup code / cred 材料自检 / web TLS /
+    //    harvest 的 spool+state。
     //    放在渲染**之后**：它要检查刚渲染出来的 `configs/field-api/cred.toml` 有没有 `[init]`，
-    //    并把 `configs/**` 的权限收成 0644。
+    //    并把 `configs/**` 的权限收成 0644；harvest 的 spool/state 也必须建在 perms 之前。
     gx.cmd ( "./sys/scripts/init-stack.sh" );
 
     // ⑦ 宿主侧属主/权限对齐（Linux 专有；macOS / OrbStack 直接跳过）：

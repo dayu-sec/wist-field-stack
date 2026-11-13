@@ -58,7 +58,8 @@ if [ ! -f "${STACK_ROOT}/configs/cells/compose.yml" ]; then
 fi
 
 # 1) 运行态目录（栈根）
-mkdir -p "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/atlas" "${STACK_ROOT}/configs/web" "${STACK_ROOT}/.wist"
+mkdir -p "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/atlas" "${STACK_ROOT}/configs/web" \
+  "${STACK_ROOT}/configs/harvest" "${STACK_ROOT}/configs/harvest/sources.d" "${STACK_ROOT}/.wist"
 # 把“容器 source”解析成宿主绝对路径：默认值是命名卷名（如 `evidence-pgdata`），
 # 不归本脚本管；只有形如路径（含 `/`）的才需要提前建好。
 resolve_data_path() {
@@ -90,6 +91,26 @@ prepare_data_dir() {
 
 prepare_data_dir "metrics" "${VM_DATA:-metrics-data}" || true
 
+# 云资产采集（**可选服务**，compose profile = harvest）的运行态：spool + state。
+#
+# 判据与渲染一致：租户 + sink 端点两个都齐才算启用（见 init-field-config.sh ⑥），
+# 没启用的站点不该凭空多出一个 `harvest-run/`。
+# 两个目录都必须对容器（uid 10001）**可写**：
+#   spool —— 收齐之前不发送；state —— 租约 / 运行报告 / **账单分片**（wist-cost 读这里）。
+# 做法与 FIELD_API_STORE_DIR 一致（0777，仅开发/测试栈），生产由
+# `gops sys perms --apply` 收敛成「属主=部署账号 / 属组=容器 gid」。
+# 必须在这里建：源目录不存在时 Docker 会建一个 root:root 的，之后就写不动了。
+HARVEST_RUN_ABS="$(resolve_data_path "${HARVEST_RUN_DIR:-./harvest-run}")"
+if [ -n "${HARVEST_TENANT_ID:-}" ] && [ -n "${HARVEST_SINK_ENDPOINT:-}" ] && [ -n "${HARVEST_RUN_ABS}" ]; then
+  for harvest_sub in spool state; do
+    mkdir -p "${HARVEST_RUN_ABS}/${harvest_sub}"
+    chmod 0777 "${HARVEST_RUN_ABS}/${harvest_sub}"
+    note "runtime dir (harvest ${harvest_sub}): ${HARVEST_RUN_ABS}/${harvest_sub}"
+  done
+else
+  note "云资产采集未启用（HARVEST_TENANT_ID / HARVEST_SINK_ENDPOINT 未齐）：不准备 harvest 运行态目录"
+fi
+
 # 凭据摘要表（`store_path`）：只存 sha256，验证侧私有状态。
 # 容器内是 uid 10001，与证据正文同理给到 0777（仅开发/测试栈）。
 FIELD_API_STORE_ABS="$(resolve_data_path "${FIELD_API_STORE_DIR:-./data/field-api}")"
@@ -105,7 +126,8 @@ note "runtime dirs: ${STACK_ROOT}/configs, ${STACK_ROOT}/.wist, ${FIELD_API_STOR
 # **不要**把 `.wist` 收成 0700：它是只读挂进容器的，容器以 10001:10001 运行，
 # 0700（属主 root）会让容器 stat 不到里面的文件 —— 症状是
 # `secrets file not found: /sec/sec-value.yml`，文件明明在，只是没权限。
-chmod 0755 "${STACK_ROOT}/configs" "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/atlas" "${STACK_ROOT}/configs/web"
+chmod 0755 "${STACK_ROOT}/configs" "${STACK_ROOT}/configs/evidence" "${STACK_ROOT}/configs/field-api" "${STACK_ROOT}/configs/atlas" "${STACK_ROOT}/configs/web" \
+  "${STACK_ROOT}/configs/harvest" "${STACK_ROOT}/configs/harvest/sources.d"
 # 配置里没有密钥（密钥是 `${SEC_…}` 占位 + `.wist/` 里的真值），所以整目录 0644。
 # 不只 `*.toml`：`nginx.conf` 也是渲染产物，靠容器读者（nginx master 以 root 起，后面降权）能读。
 find "${STACK_ROOT}/configs" -type f -exec chmod 0644 {} +

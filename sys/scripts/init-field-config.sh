@@ -10,6 +10,7 @@
 #   configs/evidence/wist-evidence.value.json 证据服务模板的渲染值
 #   configs/atlas/cells.json                  atlas 的客户→库路由
 #   configs/cells/compose.yml                 客户 PG 的编排片段（compose `include` 引它）
+#   configs/harvest/harvest.value.json        云资产采集（harvest.toml + sources.d）的渲染值
 #
 # 值从哪来：**栈根 `.env`**（`gops sys localize` 生成，含 `values/<系统>/sys_value.yml` 的现场覆盖），
 # 显式环境变量优先（gops localize 会把合并后的值直接注入流程环境）。
@@ -41,6 +42,7 @@ load_env_defaults "${STACK_ROOT}"
 FIELD_API_DIR="${STACK_ROOT}/configs/field-api"
 EVIDENCE_DIR="${STACK_ROOT}/configs/evidence"
 ATLAS_DIR="${STACK_ROOT}/configs/atlas"
+HARVEST_DIR="${STACK_ROOT}/configs/harvest"
 
 note() { echo "  $*"; }
 die() {
@@ -153,7 +155,8 @@ write_rendered() {
   fi
 }
 
-mkdir -p "${FIELD_API_DIR}" "${EVIDENCE_DIR}" "${ATLAS_DIR}" "${STACK_ROOT}/configs/web"
+mkdir -p "${FIELD_API_DIR}" "${EVIDENCE_DIR}" "${ATLAS_DIR}" "${STACK_ROOT}/configs/web" \
+  "${HARVEST_DIR}/sources.d"
 
 # 老现场收尾：bind 源缺失时 docker 会把**文件级**挂载目标建成**同名目录**
 # （`configs/field-api/cred.toml` 变成目录）—— 之后 `gx.tpl` 往目录里写就会失败，
@@ -165,6 +168,8 @@ prune_bogus_dirs() {
     "${FIELD_API_DIR}/field-api.toml" \
     "${FIELD_API_DIR}/cred.toml" \
     "${EVIDENCE_DIR}/wist-evidence.toml" \
+    "${HARVEST_DIR}/harvest.toml" \
+    "${HARVEST_DIR}/sources.d/source.toml" \
     "${STACK_ROOT}/configs/web/nginx.conf"; do
     [ -d "${path}" ] || continue
     if rmdir "${path}" 2>/dev/null; then
@@ -399,3 +404,170 @@ else:
 # print 会再多一个空行（与旧产物不再逐字节一致，会让一次 localize 白重写一遍）。
 sys.stdout.write("\n".join(lines))
 PY
+
+# ⑥ 云资产采集（wist-harvest）：一份渲染值，供两个模板共用
+#    （`harvest.toml.tpl` 与 `sources.d/source.toml.tpl`，见 operators.gxl ④b/④c）。
+#
+# 为什么「启不启用」是一个**渲染值**、而不是用 GXL 的 if 把 gx.tpl 包起来：
+#   · 关掉时文件仍要存在且可解释 —— 渲染成「只有注释的 TOML」让「为什么没采」写在现场，
+#     而不是一个「文件突然消失」的谜；
+#   · 判据只有一处（tenant + sink 两个都齐才算启用），不会出现「GXL 判一套、脚本判另一套」，
+#     也不会出现「profile 开了、数据源没渲染」的半个站点。
+#
+# 厂商差异在这里**只是数据**：凭据键名（`secret_id` / `access_key_id`）与 `[vendor_options]`。
+# 签名、端点、分页协议、字段归一全在 `harvest-{vendor}` crate 里 —— 所以「新增一家云」在本仓
+# 的全部工作量就是下面加一条 case（外加那个 crate）。
+#
+# 凭据**只写引用**：指向 `.wist/sec-value.yml` 的键名，真值不进渲染值、不进 compose 环境。
+
+# 标识符（source_code / tenant_id / env_ref / 账单账号）：原样写进 TOML 字符串，所以只允许安全字符。
+ident_like() {
+  local key="$1" value="$2"
+  case "${value}" in
+    *[!A-Za-z0-9._:-]*) die "${key} 含非法字符：'${value}'（只允许 [A-Za-z0-9._:-]）" ;;
+  esac
+  printf '%s' "${value}"
+}
+
+HARVEST_SOURCE_CODE="$(ident_like HARVEST_SOURCE_CODE "${HARVEST_SOURCE_CODE:-tencent-cloud-prod}")"
+HARVEST_TENANT_ID="$(ident_like HARVEST_TENANT_ID "${HARVEST_TENANT_ID:-}")"
+HARVEST_ENV_REF="$(ident_like HARVEST_ENV_REF "${HARVEST_ENV_REF:-prod}")"
+HARVEST_BILLING_ACCOUNT="$(ident_like HARVEST_BILLING_ACCOUNT "${HARVEST_BILLING_ACCOUNT:-}")"
+
+# sink 端点：`host:port`（harvest 的 `split_endpoint` 只认这个形状）。留空 = 不启用。
+HARVEST_SINK_ENDPOINT="$(host_like HARVEST_SINK_ENDPOINT "${HARVEST_SINK_ENDPOINT:-}")"
+case "${HARVEST_SINK_ENDPOINT}" in
+  '' | *:*) ;;
+  *) die "HARVEST_SINK_ENDPOINT 需要 host:port 形式（warp-parse 的 harvest_1 source）：'${HARVEST_SINK_ENDPOINT}'" ;;
+esac
+
+# 厂商 → 凭据键 + vendor_options + 成本能力。这些都是**配置数据**，不是逻辑。
+HARVEST_VENDOR_CANON=""
+HARVEST_CREDENTIALS=""
+HARVEST_VENDOR_OPTIONS_JSON=""
+HARVEST_HAS_VENDOR_OPTIONS="false"
+HARVEST_BILLING_CAPABLE="false"
+HARVEST_COST_CURRENCY=""
+case "$(printf '%s' "${HARVEST_VENDOR:-tencent}" | tr '[:upper:]' '[:lower:]')" in
+  tencent | tencent_cloud | tencent-cloud)
+    HARVEST_VENDOR_CANON="TENCENT_CLOUD"
+    HARVEST_CREDENTIALS="secret_id:SEC_TENCENT_SECRET_ID,secret_key:SEC_TENCENT_SECRET_KEY"
+    # 账单 reader 只有腾讯云实现了（harvest-tencent）；币种是国内账号的 CNY。
+    HARVEST_BILLING_CAPABLE="true"
+    HARVEST_COST_CURRENCY="CNY"
+    ;;
+  aws)
+    HARVEST_VENDOR_CANON="AWS"
+    HARVEST_CREDENTIALS="access_key_id:SEC_AWS_ACCESS_KEY_ID,secret_access_key:SEC_AWS_SECRET_ACCESS_KEY"
+    # 临时凭据（STS）才需要 session_token：**只在密钥文件里真的有这个键时才渲染**。
+    # 无条件渲染会让没配 STS 的站点每次读凭据都报「缺少字段」——引用指不到东西 = 启动即失败。
+    if [ -f "${STACK_ROOT}/.wist/sec-value.yml" ] \
+      && grep -q '^SEC_AWS_SESSION_TOKEN:' "${STACK_ROOT}/.wist/sec-value.yml"; then
+      HARVEST_CREDENTIALS="${HARVEST_CREDENTIALS},session_token:SEC_AWS_SESSION_TOKEN"
+    fi
+    case "${HARVEST_AWS_PARTITION:-aws}" in
+      aws | aws-cn | aws-us-gov)
+        HARVEST_VENDOR_OPTIONS_JSON="partition = \"${HARVEST_AWS_PARTITION:-aws}\""
+        HARVEST_HAS_VENDOR_OPTIONS="true"
+        ;;
+      *) die "HARVEST_AWS_PARTITION 只认 aws / aws-cn / aws-us-gov：'${HARVEST_AWS_PARTITION}'" ;;
+    esac
+    # **AWS 账单 reader 还没实现**（成本契约 v1 目前只有腾讯云）：
+    # 这里不渲染 `billing_account` / `[cost]` —— 渲染了就等于承诺一个必然报错的通路，
+    # 还带着一个错的币种（AWS 是 USD，不是 CNY）。
+    if [ -n "${HARVEST_BILLING_ACCOUNT}" ]; then
+      note "⚠ HARVEST_BILLING_ACCOUNT 已配置但 vendor=aws：账单采集尚未实现，本次不渲染成本链路"
+    fi
+    ;;
+  *) die "HARVEST_VENDOR 只认 tencent / aws（harvest 侧对应 TENCENT_CLOUD / AWS）：'${HARVEST_VENDOR:-}'" ;;
+esac
+
+# 厂家与 source_code 不一致是最常见的复制错误（source_code 是下游的资源匹配键，不是显示名）。
+if [ "${HARVEST_VENDOR_CANON}" != "TENCENT_CLOUD" ] \
+  && [ "${HARVEST_SOURCE_CODE}" = "tencent-cloud-prod" ]; then
+  note "⚠ HARVEST_SOURCE_CODE 还是默认的 tencent-cloud-prod，但 vendor=${HARVEST_VENDOR_CANON}：确认一下（下游按它做资源匹配）"
+fi
+
+HARVEST_ENABLED="false"
+if [ -n "${HARVEST_TENANT_ID}" ] && [ -n "${HARVEST_SINK_ENDPOINT}" ]; then
+  HARVEST_ENABLED="true"
+fi
+# 成本链路是可选段：没账单账号（或该厂商的账单 reader 还没实现）就不渲染
+# `billing_account` / `[cost]`，避免 dry-run / cost 拿到一个假的账号键。
+HARVEST_COST_ENABLED="false"
+if [ "${HARVEST_ENABLED}" = "true" ] \
+  && [ "${HARVEST_BILLING_CAPABLE}" = "true" ] \
+  && [ -n "${HARVEST_BILLING_ACCOUNT}" ]; then
+  HARVEST_COST_ENABLED="true"
+fi
+
+# 半配状态要**说出来**：只配一半的现场最费时间（"我明明写了"）。
+if [ -n "${HARVEST_TENANT_ID}" ] && [ -z "${HARVEST_SINK_ENDPOINT}" ]; then
+  note "⚠ HARVEST_TENANT_ID 有值但 HARVEST_SINK_ENDPOINT 为空：采集仍不启用（快照发不出去）"
+fi
+if [ -z "${HARVEST_TENANT_ID}" ] && [ -n "${HARVEST_SINK_ENDPOINT}" ]; then
+  note "⚠ HARVEST_SINK_ENDPOINT 有值但 HARVEST_TENANT_ID 为空：采集仍不启用（不知道采哪个租户）"
+fi
+case ",${COMPOSE_PROFILES:-}," in
+  *,harvest,*)
+    if [ "${HARVEST_ENABLED}" != "true" ]; then
+      note "⚠ COMPOSE_PROFILES 里有 harvest，但采集未启用：容器起来会因数据源不可用而失败"
+    fi
+    ;;
+  *)
+    if [ "${HARVEST_ENABLED}" = "true" ]; then
+      note "⚠ 采集已配置，但 COMPOSE_PROFILES 里没有 harvest：容器不会启动（把 harvest 加进去后重跑 localize）"
+    fi
+    ;;
+esac
+
+# 地域：`auto` 原样输出；逗号分隔的固定列表转成 TOML 数组字面量。
+HARVEST_REGIONS_LITERAL='"auto"'
+case "${HARVEST_REGIONS:-auto}" in
+  '' | auto) ;;
+  *)
+    HARVEST_REGION_LIST=""
+    IFS=',' read -r -a harvest_region_parts <<<"${HARVEST_REGIONS}"
+    for part in "${harvest_region_parts[@]}"; do
+      part="$(printf '%s' "${part}" | tr -d '[:space:]')"
+      [ -n "${part}" ] || continue
+      case "${part}" in
+        *[!A-Za-z0-9-]*) die "HARVEST_REGIONS 里的地域名含非法字符：'${part}'" ;;
+      esac
+      if [ -n "${HARVEST_REGION_LIST}" ]; then HARVEST_REGION_LIST="${HARVEST_REGION_LIST}, "; fi
+      HARVEST_REGION_LIST="${HARVEST_REGION_LIST}\"${part}\""
+    done
+    [ -n "${HARVEST_REGION_LIST}" ] || die "HARVEST_REGIONS 既不是 auto，也没有有效地域：'${HARVEST_REGIONS}'"
+    HARVEST_REGIONS_LITERAL="[${HARVEST_REGION_LIST}]"
+    ;;
+esac
+
+# 凭据表 → [{name, field}]（模板里用 `{{#each}}` 展开成一行一个引用）。
+HARVEST_CREDENTIALS_JSON=""
+IFS=',' read -r -a harvest_cred_pairs <<<"${HARVEST_CREDENTIALS}"
+for pair in "${harvest_cred_pairs[@]}"; do
+  if [ -n "${HARVEST_CREDENTIALS_JSON}" ]; then HARVEST_CREDENTIALS_JSON="${HARVEST_CREDENTIALS_JSON}, "; fi
+  HARVEST_CREDENTIALS_JSON="${HARVEST_CREDENTIALS_JSON}{\"name\": \"${pair%%:*}\", \"field\": \"${pair#*:}\"}"
+done
+
+# 带引号的字面量写进 JSON 值时要按 JSON 规则转义（模板用三花括号原样输出）。
+HARVEST_REGIONS_LITERAL_JSON="${HARVEST_REGIONS_LITERAL//\"/\\\"}"
+HARVEST_VENDOR_OPTIONS_ESCAPED="${HARVEST_VENDOR_OPTIONS_JSON//\"/\\\"}"
+
+write_rendered "${HARVEST_DIR}/harvest.value.json" cat <<EOF
+{
+  "harvest_enabled": ${HARVEST_ENABLED},
+  "harvest_sink_endpoint": "${HARVEST_SINK_ENDPOINT}",
+  "harvest_source_code": "${HARVEST_SOURCE_CODE}",
+  "harvest_tenant_id": "${HARVEST_TENANT_ID}",
+  "harvest_vendor": "${HARVEST_VENDOR_CANON}",
+  "harvest_env_ref": "${HARVEST_ENV_REF}",
+  "harvest_regions_literal": "${HARVEST_REGIONS_LITERAL_JSON}",
+  "harvest_cost_enabled": ${HARVEST_COST_ENABLED},
+  "harvest_cost_currency": "${HARVEST_COST_CURRENCY}",
+  "harvest_billing_account": "${HARVEST_BILLING_ACCOUNT}",
+  "harvest_credentials": [${HARVEST_CREDENTIALS_JSON}],
+  "harvest_has_vendor_options": ${HARVEST_HAS_VENDOR_OPTIONS},
+  "harvest_vendor_options_literal": "${HARVEST_VENDOR_OPTIONS_ESCAPED}"
+}
+EOF

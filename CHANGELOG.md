@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## 未发布
+
+**接入 `wist-harvest`（云资产采集）—— 可选服务，默认不启。**
+
+一个现场多了三种云之后，「资产从哪来」不能再靠人填表。这个版本把采集器放进本栈，
+但**不改变任何既有行为**：不配变量就不启动、不渲染数据源。
+
+- 新增 `harvest` 服务（`profiles: ["harvest"]`），**没有任何宿主端口**：它只出网到云 API、
+  出站把快照帧发给数据面的 warp-parse（`harvest_1` source）。
+- 配置进 `sys/configs/harvest/`（与其他组件同一套）：`harvest.toml.tpl` 与
+  `sources.d/source.toml.tpl` 由 `gx run localize` 渲染；渲染值由
+  `sys/scripts/init-field-config.sh` ⑥ 备料（含厂商 → 凭据键名的映射）。
+- 启用判据是**两个变量都齐**（`HARVEST_TENANT_ID` + `HARVEST_SINK_ENDPOINT`）：
+  缺一个就渲染成「只有注释的 TOML」——它仍是合法文件但**不是可用数据源**，
+  于是硬起容器会当场 `source_config` FAIL，而不是拿空租户去云上采一遍。
+  另需 `COMPOSE_PROFILES=harvest` 才真的启动（不一致时 localize 会打 note）。
+- 凭据只从 `.wist/sec-value.yml` 读（`{ file = ..., field = "SEC_..." }`），
+  **不进 compose 环境变量**（写进去等于在 `docker inspect` 里裸奔）。
+- 两家云：腾讯云（凭据 `secret_id`/`secret_key`；支持账单）与 AWS
+  （`access_key_id`/`secret_access_key`[/`session_token`]，`[vendor_options].partition`；
+  **账单未实现，因此不渲染 `[cost]`**）。
+- 新增 `dev/tests/harvest-config.test.sh`（38 条）：启用判据、厂商映射、地域字面量、
+  模板占位符覆盖、compose 接线；并用真实 `gx.tpl` 渲染 + `tomllib` 解析验证产物。
+
+升级影响：无（不配新变量时行为与 0.5.4 完全一致）。
+
 ## 0.5.4-alpha · 2026-11-12
 
 **重做 0.5.3 的修法**（0.5.3 已在部分环境上撤回，见下）。
