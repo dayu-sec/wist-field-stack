@@ -27,7 +27,7 @@
 一个客户都没登记时 `evidence` / `atlas` 起不来（这是有意的，见 `docs/multi-customer.md`）。
 
 **只有 `web` 给浏览器用**；对数据面开放的只有三个写/收端口：
-证据写（`18800`）、资产写（`18801`）、指标（`18428`）。其余服务都不绑宿主端口。
+证据写（`6800`）、资产写（`6801`）、指标（`6802`）。其余服务都不绑宿主端口。
 
 ## 快速开始（docker compose）
 
@@ -240,11 +240,11 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 |---|---|---|
 | `WEB_BIND_IP` / `WEB_HOST_PORT` | `127.0.0.1:8088` | 唯一浏览器入口（HTTPS，容器内 443） |
 | `WEB_DOMAIN` | `localhost` | 证书 SAN 里的域名（SAN 同时带 `localhost` 与 `127.0.0.1`） |
-| `EVIDENCE_SINK_BIND_IP` / `EVIDENCE_SINK_HOST_PORT` | `127.0.0.1:18800` | 证据写入端口（数据面 `http_sink`） |
+| `EVIDENCE_SINK_BIND_IP` / `EVIDENCE_SINK_HOST_PORT` | `127.0.0.1:6800` | 证据写入端口（数据面 `http_sink`） |
 | `EVIDENCE_SINK_PUBLIC_HOST` | `127.0.0.1` | 「接入」页展示的写端点主机名（数据面视角，**每个实例不同**）；端口复用 `EVIDENCE_SINK_HOST_PORT` |
-| `ATLAS_INGEST_BIND_IP` / `ATLAS_INGEST_HOST_PORT` | `127.0.0.1:18801` | 资产拓扑写入端口（数据面投 DSNAP） |
+| `ATLAS_INGEST_BIND_IP` / `ATLAS_INGEST_HOST_PORT` | `127.0.0.1:6801` | 资产拓扑写入端口（数据面投 DSNAP） |
 | `ATLAS_INGEST_PUBLIC_HOST` | `127.0.0.1` | 「接入」页展示的资产拓扑写端点主机名；端口复用 `ATLAS_INGEST_HOST_PORT` |
-| `VM_BIND_IP` / `VM_HOST_PORT` | `127.0.0.1:18428` | VictoriaMetrics：数据面 remote write + 运维查询 |
+| `VM_BIND_IP` / `VM_HOST_PORT` | `127.0.0.1:6802` | VictoriaMetrics：数据面 remote write + 运维查询 |
 | `ATLAS_PROBE` / `ATLAS_PROBE_INTERVAL_SECS` | `on` / `300` | atlas 写探针（往保留租户写最小 DSNAP） |
 | `EVIDENCE_READ_PORT` | `8443` | 证据读监听（容器内）。**一个来源**：evidence 的 `[read].listen_addr`、compose 健康检查、field-api 的 `evidence.base_url` 都从它来 |
 | `PG_BIND_IP` | `127.0.0.1` | 客户 PG 绑宿主端口的默认监听地址（只在该客户 `--pg-port` 时才绑） |
@@ -489,9 +489,9 @@ topology/sinks/infra.d/metrics_uplink.toml
 拷进 wparse 工作根，配三个环境变量：
 
 ```bash
-EVIDENCE_SINK_URL=http://<证据服务内网地址>:18800      # EVIDENCE_SINK_BIND_IP / PORT
-ATLAS_SINK_URL=http://<atlas 内网地址>:18801           # ATLAS_INGEST_BIND_IP / PORT
-WIST_METRICS_ENDPOINT=http://<本栈内网地址>:18428      # VM_BIND_IP / VM_HOST_PORT
+EVIDENCE_SINK_URL=http://<证据服务内网地址>:6800      # EVIDENCE_SINK_BIND_IP / PORT
+ATLAS_SINK_URL=http://<atlas 内网地址>:6801           # ATLAS_INGEST_BIND_IP / PORT
+WIST_METRICS_ENDPOINT=http://<本栈内网地址>:6802      # VM_BIND_IP / VM_HOST_PORT
 ```
 
 > 前两行的地址就是「接入」页展示的那两条：栈里由 `EVIDENCE_SINK_PUBLIC_HOST` /
@@ -514,7 +514,7 @@ name = "metrics_vmetrics_sink"
 connect = "victoriametrics_sink"
 
 [sink_group.sinks.params]
-endpoint = "${WIST_METRICS_ENDPOINT}"   # http://<field-stack 地址>:18428
+endpoint = "${WIST_METRICS_ENDPOINT}"   # http://<field-stack 地址>:6802
 ```
 
 数据场的「接口可用性」页会多一条「运行指标存储」（探 VM 的 `/health`）。

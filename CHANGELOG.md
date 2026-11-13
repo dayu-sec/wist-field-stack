@@ -1,6 +1,20 @@
 # CHANGELOG
 
-## 未发布
+## 0.5.5-alpha · 2026-11-13
+
+**组件跟进：`ATLAS_IMAGE_TAG` → `v0.7.0-alpha`、`FIELD_WEB_IMAGE_TAG` → `v0.2.11-alpha`、
+`HARVEST_IMAGE_TAG` → `v0.1.1-alpha`。**
+
+atlas 0.7.0 带来云资产进目录（EIP / VPC / 子网三个读接口）、退役只信账号级完整快照、
+主机节点标出 agentd；field-web 0.2.11 把「网络资产」页改成 tab（VPC / 子网 / 公网 IP /
+闲置地址，走路由可分享）并升到图谱内核 0.7.0（班段收窄、长按悬浮详情卡、按宽高比排版、
+下钻历史路径）。三个 tag 都在栈里换好，没有新增服务、没有变量改名 ——
+不启用 harvest 的现场行为与 0.5.4 一致。
+
+**宿主端口默认值改了**：证据写 `18800 → 6800`、资产写 `18801 → 6801`、指标 `18428 → 6802`
+（`sys/setting/vars.yml`）。`.env.example` 与 README 一并同步，`env-example-drift` 用例
+从 0.5.4 的红转绿。已部署站点自己写的 `.env` 优先生效，不受影响；新部署 / 照
+`.env.example` 初始化时要按新端口配数据面。
 
 **接入 `wist-harvest`（云资产采集）—— 可选服务，默认不启。**
 

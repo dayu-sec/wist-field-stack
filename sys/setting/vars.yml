@@ -17,14 +17,14 @@ system:
   - name: FIELD_API_IMAGE_TAG
     value: v0.7.4-alpha
   - name: FIELD_WEB_IMAGE_TAG
-    value: v0.2.9-alpha
+    value: v0.2.11-alpha
   - name: EVIDENCE_IMAGE_TAG
     value: v0.3.0-alpha
 
   - name: ATLAS_REGISTRY
     value: ghcr.io/dayu-sec
   - name: ATLAS_IMAGE_TAG
-    value: v0.5.1-alpha
+    value: v0.7.0-alpha
 
   - name: PG_REGISTRY
     value: docker.io/library
@@ -143,7 +143,7 @@ system:
   #   缺 HARVEST_SINK_ENDPOINT → 同上（快照发不出去就不采）
   #   COMPOSE_PROFILES 没加 harvest → 容器根本不会起（配置留着，下次生效）
   - name: HARVEST_IMAGE_TAG
-    value: v0.1.0-alpha
+    value: v0.1.1-alpha
   # 运行态：spool（收齐之前不发送）与 state（租约 / 报告 / **账单分片**）。
   # 现场建议换成独立数据盘：state/cost 是 wist-cost 的输入。
   - name: HARVEST_RUN_DIR
