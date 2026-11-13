@@ -29,7 +29,7 @@ system:
   - name: PG_REGISTRY
     value: docker.io/library
   - name: PG_IMAGE_TAG
-    value: '16'
+    value: '16.16'
 
   # 唯一浏览器入口（field-web）。默认只绑回环：TLS 在 web 容器里终结，
   # 证书由 `sys/scripts/init-web-tls.sh <域名>` 生成到 identity/web/。

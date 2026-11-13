@@ -14,7 +14,7 @@ system:
 - name: PG_REGISTRY
   value: docker.io/library
 - name: PG_IMAGE_TAG
-  value: '16'
+  value: '16.16'
 - name: WEB_BIND_IP
   value: 127.0.0.1
 - name: WEB_HOST_PORT

@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 0.5.6-alpha · 2026-11-13
+
+**PG 从浮动 `16` 钉到 `16.16`。**
+
+`postgres:16` 是浮动 tag：上游一重建，mirror 上的 manifest 就变，`gops run download` 会去拉
+一整套新层（现场表现为不动的 `0B`，因为 blob 还得经 mirror 回源）。PG 的小版本升级也不该
+在 `gops run start` 时静默发生 —— 库一换版本，`/var/lib/postgresql/data` 的兼容性就不再是
+“没改任何东西”。
+
+- `PG_IMAGE_TAG`：`16` → `16.16`（`16` 与 `16.16` 当前指向同一个 arm64 manifest，
+  所以已部署现场**不需要重新下任何层**）。
+- `.env.example` 同步；`env-example-drift` 用例仍绿。
+
+升级影响：无。除非现场自己在 `.env` 里把 `PG_IMAGE_TAG` 写回 `16`，否则行为不变。
+
 ## 0.5.5-alpha · 2026-11-13
 
 **组件跟进：`ATLAS_IMAGE_TAG` → `v0.7.0-alpha`、`FIELD_WEB_IMAGE_TAG` → `v0.2.11-alpha`、
