@@ -49,12 +49,12 @@
 ```
 写：wparse ──(单端口、单配置、不带客户)──► evidence ──[按 body.cust_id 选后端]──► PG-<cust>
 读：浏览器 ──(令牌 + ?tenant=)──► field-api ──[校验 ✅ 再用自己的 tenant]──► evidence(读口) ──► PG-<cust>
-写：wparse ──(body.cust_id = atlas 租户 UUID)──► atlas ──[UUID 选库 / 租户]──► PG-<cust>-atlas
+写：wparse ──(body.cust_id = 客户号)──► atlas ──[按客户号选 cell]──► PG-<cust>-atlas
 ```
 
 - **写侧**没有任何客户信息可依赖，只看 `cust_id`：这就是为什么分流必须在服务端。
 - **读侧**的客户由 BFF 校验：**本期授权源是配置 `allowed_tenants`**（不碰 `wist-cred`），`?tenant=` 只用来"选"，不能用来"授"；校验通过后 BFF 用自己解析出的 tenant 去读。M2 再把授权源换成凭据的 `resources.tenants`（校验点不变）。
-- **atlas 侧多一层编码**：它的租户是 UUID，而 evidence 的租户是客户号字符串；目前靠数据面 OML 里一行 `uuid5` 死值硬顶（换客户要改模型），且读接口完全不带租户 —— 见 §5.7。
+- **atlas 侧**（2026-11-13 更正）：写入口的 `cust_id` 现在就是**客户号**，atlas 用 cells 清单把它路由到该客户的库（不在清单里直接 400 `tenant_unregistered`）；数据面 OML 里的 `uuid5` 死值已在 0.4.x 删除，改为读全局 tag `tenant_id`（客户号）。原“UUID 死值 + 读接口不带租户”的描述保留在 §5.7.1 里作为历史背景。
 
 ## 5. 详细设计
 
@@ -185,6 +185,10 @@ curl -s http://metrics:8428/api/v1/labels | tr ',' '\n' | grep tenant_id
 > 可执行拆分（atlas 仓任务、栈侧 diff 草案、里程碑与回滚）见 [`docs/atlas-m1.7-tasks.md`](./atlas-m1.7-tasks.md)。
 
 #### 5.7.1 现状（逐条核实过）
+
+> **2026-11-13 更正**：本表记录的是 2026-11-11 的事实。此后 atlas 已改为「cells 清单 + 每客户库」、
+> `cust_id` = 客户号、写入口按客户号路由（未登记 → 400 `tenant_unregistered`），OML 的 `uuid5` 死值已删。
+> 下面三行关于 UUID / 读接口不带租户的描述仅作历史背景。
 
 | 事实 | 证据 |
 |---|---|

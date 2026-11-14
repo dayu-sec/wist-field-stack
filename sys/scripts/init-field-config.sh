@@ -420,7 +420,8 @@ PY
 #
 # 凭据**只写引用**：指向 `.wist/sec-value.yml` 的键名，真值不进渲染值、不进 compose 环境。
 
-# 标识符（source_code / tenant_id / env_ref / 账单账号）：原样写进 TOML 字符串，所以只允许安全字符。
+# 标识符（source_code / env_ref / 账单账号）：原样写进 TOML 字符串，所以只允许安全字符。
+# 注意：采集器**不感知客户 / 租户**（身份由发送通道打标），这里不该再出现 tenant。
 ident_like() {
   local key="$1" value="$2"
   case "${value}" in
@@ -430,7 +431,6 @@ ident_like() {
 }
 
 HARVEST_SOURCE_CODE="$(ident_like HARVEST_SOURCE_CODE "${HARVEST_SOURCE_CODE:-tencent-cloud-prod}")"
-HARVEST_TENANT_ID="$(ident_like HARVEST_TENANT_ID "${HARVEST_TENANT_ID:-}")"
 HARVEST_ENV_REF="$(ident_like HARVEST_ENV_REF "${HARVEST_ENV_REF:-prod}")"
 HARVEST_BILLING_ACCOUNT="$(ident_like HARVEST_BILLING_ACCOUNT "${HARVEST_BILLING_ACCOUNT:-}")"
 
@@ -488,8 +488,15 @@ if [ "${HARVEST_VENDOR_CANON}" != "TENCENT_CLOUD" ] \
   note "⚠ HARVEST_SOURCE_CODE 还是默认的 tencent-cloud-prod，但 vendor=${HARVEST_VENDOR_CANON}：确认一下（下游按它做资源匹配）"
 fi
 
+# 启用开关由站点给（`HARVEST_ENABLED=true`），再要求 sink 端点齐 —— 两个都满足才渲染数据源。
+# **不再需要客户 / 租户**：采集器不感知客户，身份由发送通道打标。
+HARVEST_REQUESTED="${HARVEST_ENABLED:-false}"
+case "${HARVEST_REQUESTED}" in
+  true | false) ;;
+  *) die "HARVEST_ENABLED 只接受 true / false：'${HARVEST_REQUESTED}'" ;;
+esac
 HARVEST_ENABLED="false"
-if [ -n "${HARVEST_TENANT_ID}" ] && [ -n "${HARVEST_SINK_ENDPOINT}" ]; then
+if [ "${HARVEST_REQUESTED}" = "true" ] && [ -n "${HARVEST_SINK_ENDPOINT}" ]; then
   HARVEST_ENABLED="true"
 fi
 # 成本链路是可选段：没账单账号（或该厂商的账单 reader 还没实现）就不渲染
@@ -502,24 +509,12 @@ if [ "${HARVEST_ENABLED}" = "true" ] \
 fi
 
 # 半配状态要**说出来**：只配一半的现场最费时间（"我明明写了"）。
-if [ -n "${HARVEST_TENANT_ID}" ] && [ -z "${HARVEST_SINK_ENDPOINT}" ]; then
-  note "⚠ HARVEST_TENANT_ID 有值但 HARVEST_SINK_ENDPOINT 为空：采集仍不启用（快照发不出去）"
+if [ "${HARVEST_REQUESTED}" = "true" ] && [ -z "${HARVEST_SINK_ENDPOINT}" ]; then
+  note "⚠ HARVEST_ENABLED=true 但 HARVEST_SINK_ENDPOINT 为空：采集仍不启用（快照发不出去）"
 fi
-if [ -z "${HARVEST_TENANT_ID}" ] && [ -n "${HARVEST_SINK_ENDPOINT}" ]; then
-  note "⚠ HARVEST_SINK_ENDPOINT 有值但 HARVEST_TENANT_ID 为空：采集仍不启用（不知道采哪个租户）"
+if [ "${HARVEST_REQUESTED}" != "true" ] && [ -n "${HARVEST_SINK_ENDPOINT}" ]; then
+  note "⚠ HARVEST_SINK_ENDPOINT 有值但 HARVEST_ENABLED 不是 true：采集仍不启用"
 fi
-case ",${COMPOSE_PROFILES:-}," in
-  *,harvest,*)
-    if [ "${HARVEST_ENABLED}" != "true" ]; then
-      note "⚠ COMPOSE_PROFILES 里有 harvest，但采集未启用：容器起来会因数据源不可用而失败"
-    fi
-    ;;
-  *)
-    if [ "${HARVEST_ENABLED}" = "true" ]; then
-      note "⚠ 采集已配置，但 COMPOSE_PROFILES 里没有 harvest：容器不会启动（把 harvest 加进去后重跑 localize）"
-    fi
-    ;;
-esac
 
 # 地域：`auto` 原样输出；逗号分隔的固定列表转成 TOML 数组字面量。
 HARVEST_REGIONS_LITERAL='"auto"'
@@ -559,7 +554,6 @@ write_rendered "${HARVEST_DIR}/harvest.value.json" cat <<EOF
   "harvest_enabled": ${HARVEST_ENABLED},
   "harvest_sink_endpoint": "${HARVEST_SINK_ENDPOINT}",
   "harvest_source_code": "${HARVEST_SOURCE_CODE}",
-  "harvest_tenant_id": "${HARVEST_TENANT_ID}",
   "harvest_vendor": "${HARVEST_VENDOR_CANON}",
   "harvest_env_ref": "${HARVEST_ENV_REF}",
   "harvest_regions_literal": "${HARVEST_REGIONS_LITERAL_JSON}",

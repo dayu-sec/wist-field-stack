@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## 0.5.7-alpha · 2026-11-13
+
+**`harvest` 常驻，开关只靠 `HARVEST_ENABLED`；采集器不再感知客户 / 租户。**
+
+去掉了 `profiles: ["harvest"]`：装完就在跑，开不开由一个变量决定（本栈没有中心网关，
+开关没法交给页面）。同时跟进 `wist-harvest 0.4.0`：
+
+- `HARVEST_IMAGE_TAG`：`v0.3.0-alpha` → `v0.4.0-alpha`。
+- **`HARVEST_TENANT_ID` 变量删除**：一个数据面只服务一个客户，客户身份由发送通道
+  在入库时打上（wparse 全局 tag `tenant_id`，来自 gwlinkd 写的 `WIST_TENANT_ID`），
+  采集配置里不再出现 `tenant_id`。历史站点如果还在 `values/` 里写它，现在会被忽略。
+- **`COMPOSE_PROFILES` 变量删除**：本栈已经没有可选服务，留着只会让人以为还要配。
+- `harvest.toml` 新增 `[service] enabled`（本地硬开关）：`false` = 常驻但不调度，
+  healthcheck 只探活 + 检查 spool/state；数据源渲染成「只有注释」。
+- 启用的判据仍是**两个条件都齐**：`HARVEST_ENABLED=true` + `HARVEST_SINK_ENDPOINT` 非空。
+
+升级影响：**常驻但默认不采** —— `HARVEST_ENABLED` 默认 `false`，数据源不渲染，行为与
+0.5.6 一致。要采集就把它置 `true` 后跑 `gops sys localize && gops run start`。
+新增的容器（以前没开 profile 就没有）会随 `gops run start` 一起起来，常驻但不调度。
+
 ## 0.5.6-alpha · 2026-11-13
 
 **PG 从浮动 `16` 钉到 `16.16`。**

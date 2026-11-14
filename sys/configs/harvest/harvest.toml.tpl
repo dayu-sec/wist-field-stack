@@ -20,6 +20,9 @@
 #   max_resume_age_ms  可续跑 spool 的最大年龄（24h）：超龄就弃旧开新，
 #                      否则一个「永久失败」的工作项会让每轮都续跑同一份旧 spool
 [service]
+# 采集开关（运行时）：`false` = 进程常驻但不调度（healthcheck 只探活）。
+# 管理面关掉采集时容器不必销毁；改回 true 后重启即恢复。
+enabled = {{harvest_enabled}}
 spool_dir = "/var/lib/wist-harvest/spool"
 state_dir = "/var/lib/wist-harvest/state"
 page_size = 100

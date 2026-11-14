@@ -10,14 +10,15 @@
 #
 # 一个云账号一个数据源；多账号 = 多加一个 harvest 服务实例（`sources.d/` 就是为它留的）。
 #
-# 关闭态（`HARVEST_TENANT_ID` / `HARVEST_SINK_ENDPOINT` 任一为空）渲染成**只有注释**：
+# 关闭态（`HARVEST_ENABLED` 不为 true 或 `HARVEST_SINK_ENDPOINT` 为空）渲染成**只有注释**：
 # 它是合法 TOML，但不是合法数据源（缺 `source_code`）。于是「绕过 profile 硬起容器」会当场
-# `source_config` FAIL，而不是拿一个空租户去云上把某个账号采一遍 —— 那种错是静默且彻底的。
+# `source_config` FAIL，而不是拿一个空配置去云上把某个账号采一遍 —— 那种错是静默且彻底的。
+#
+# **这里没有客户 / 租户**：一个数据面只服务一个客户，客户身份由发送通道（wparse 的全局
+# tag，来自 gwlinkd 写入的 `WIST_TENANT_ID`）在入库时打上。
 {{#if harvest_enabled}}
 source_code = "{{harvest_source_code}}"
-# 租户 = 客户 id（与 `configs/cells/cells.json` 的 `cust_id` 同源）；下游按它做作用域隔离。
 # 换实现（换厂商 / 换语言）**不能换** source_code，下游按它做资源匹配。
-tenant_id = "{{harvest_tenant_id}}"
 # 厂商：选择适配器。**必填且必须显式** —— 不写/写错就启动失败，绝不猜
 #（猜错 = 拿一个账号的数据按另一家的 API 去采，错得静默且彻底）。
 vendor = "{{harvest_vendor}}"
@@ -63,13 +64,12 @@ currency = "{{harvest_cost_currency}}"
 {{/if}}
 {{else}}
 # ── 采集未启用（本文件不是可用数据源）────────────────────────────────────
-# 原因：`HARVEST_TENANT_ID` 或 `HARVEST_SINK_ENDPOINT` 为空（至少一个）。
+# 原因：`HARVEST_ENABLED` 不是 true，或 `HARVEST_SINK_ENDPOINT` 为空。
 #
 # 启用步骤（现场值写 `values/<系统>/sys_value.yml`，然后 `gops sys localize`）：
-#   1. HARVEST_TENANT_ID     = 客户 id（与 `configs/cells/cells.json` 的 cust_id 一致）
+#   1. HARVEST_ENABLED       = true（采集器不感知客户，身份由发送通道打标）
 #   2. HARVEST_SINK_ENDPOINT = warp-parse 的 `harvest_1` source，`host:port`，**容器可达**
-#   3. COMPOSE_PROFILES      = harvest（compose profile，服务默认不启动）
-#   4. HARVEST_VENDOR        = tencent | aws
+#   3. HARVEST_VENDOR        = tencent | aws
 #   5. 凭据写进 `.wist/sec-value.yml`（腾讯云：SEC_TENCENT_SECRET_ID / SEC_TENCENT_SECRET_KEY），
 #      再跑 `gops sys perms --apply` 把属组对到容器 gid（10001）。
 {{/if}}

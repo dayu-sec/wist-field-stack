@@ -3,8 +3,8 @@
 #
 #   ./dev/tests/harvest-config.test.sh
 #
-# 为什么钉这一组：harvest 的启用是**三个变量 + 一份渲染值**共同决定的
-#（`HARVEST_TENANT_ID` / `HARVEST_SINK_ENDPOINT` / `COMPOSE_PROFILES`），
+# 为什么钉这一组：harvest 的启用是**两个变量 + 一份渲染值**共同决定的
+#（`HARVEST_ENABLED` / `HARVEST_SINK_ENDPOINT`），服务自身是**常驻**的（没有 compose profile），
 # 而渲染层有两个典型的静默错误：
 #   · handlebars 把**不存在的占位符渲染成空串**（拼错一个字母 = 配置项悄悄消失）；
 #   · 「关掉」很容易做成「文件消失」或「渲染出一个空租户的数据源」——
@@ -151,18 +151,16 @@ else
 fi
 
 echo "② 腾讯云 + 账单账号：启用"
-with_env HARVEST_TENANT_ID=DEV-1 HARVEST_SINK_ENDPOINT=wparse:9101 \
+with_env HARVEST_ENABLED=true HARVEST_SINK_ENDPOINT=wparse:9101 \
   HARVEST_BILLING_ACCOUNT=100041355715 -- sandbox_run init-field-config.sh \
   || test_no "init-field-config.sh（启用态）失败"
 expect "harvest_enabled" "true" "$(jraw harvest_enabled)"
-expect "tenant_id" "DEV-1" "$(jstr harvest_tenant_id)"
 expect "成本链路随账单账号打开" "true" "$(jraw harvest_cost_enabled)"
 expect "币种由厂商定（腾讯云国内账号）" "CNY" "$(jstr harvest_cost_currency)"
 
 if [ "${render_rc}" -ne 2 ]; then
   render_tpls || test_no "gx tpl 渲染失败（启用态）"
   for line in \
-    '^tenant_id = "DEV-1"$' \
     '^vendor = "TENCENT_CLOUD"$' \
     '^billing_account = "100041355715"$' \
     '^currency = "CNY"$' \
@@ -200,7 +198,7 @@ PY
 fi
 
 echo "③ AWS：厂商专属的凭据键 / vendor_options / 地域列表"
-with_env HARVEST_TENANT_ID=DEV-1 HARVEST_SINK_ENDPOINT=wparse:9101 HARVEST_VENDOR=aws \
+with_env HARVEST_ENABLED=true HARVEST_SINK_ENDPOINT=wparse:9101 HARVEST_VENDOR=aws \
   HARVEST_AWS_PARTITION=aws-cn HARVEST_SOURCE_CODE=aws-prod \
   HARVEST_REGIONS='ap-east-1, us-east-1' HARVEST_BILLING_ACCOUNT=123456789012 \
   -- sandbox_run init-field-config.sh || test_no "init-field-config.sh（AWS）失败"
@@ -288,8 +286,13 @@ if [ -n "${BLOCK}" ]; then
 else
   test_no "主 compose 没有 harvest 服务"
 fi
+# 常驻（开关走 `[service] enabled`）：不再是安装期的 profile。
+if printf '%s\n' "${BLOCK}" | grep -qE '^\s+profiles:'; then
+  test_no "harvest 段还在用 profiles（应当常驻 + enabled 开关）"
+else
+  test_ok "harvest 常驻（没有 profiles）"
+fi
 for pattern in \
-  'profiles: ["harvest"]' \
   'user: "10001:10001"' \
   './configs/harvest:/etc/wist-harvest:ro' \
   './.wist:/sec:ro'; do
@@ -316,7 +319,7 @@ else
 fi
 
 echo "⑥ 配错就当场失败（不静默）"
-if with_env HARVEST_TENANT_ID=DEV-1 HARVEST_SINK_ENDPOINT=wparse:9101 HARVEST_VENDOR=gcp \
+if with_env HARVEST_ENABLED=true HARVEST_SINK_ENDPOINT=wparse:9101 HARVEST_VENDOR=gcp \
   -- sandbox_run init-field-config.sh; then
   test_no "未知厂商应该被拒绝"
 else

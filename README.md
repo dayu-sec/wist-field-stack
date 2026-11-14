@@ -381,39 +381,44 @@ bash sys/scripts/add-customer.sh --remove <cust_id> --purge-data  # 连容器与
 - 本栈**不跑数据面**（warp-parse）。所以 `harvest` 只做生产者：入站为零，出站两处
   （云 API + 数据面的 `harvest_1` source）。
 
-## 云资产采集（harvest，可选）
+## 云资产采集（harvest，常驻）
 
-`harvest` 是**可选服务**（compose `profiles: ["harvest"]`，默认不启）：
+`harvest` 是**常驻服务**（装完就在跑），开关是 `HARVEST_ENABLED`：
 去云账号拉资产事实 → 归一成既有字段名 → 落本地 spool → 完整性校验 →
 **一个采集组的完整快照**发给数据面（任一步失败即 Aborted，数据平面零帧）。
 
-### 启用：三个变量 + 一处凭据
+> 本栈没有中心（网关）在那里，所以开关就是 `HARVEST_ENABLED` 这一个变量。
+> 网关栈里的 harvest 不一样：它按 `harvest.enabled` 轮询中心，页面上一键开关，**不用重部署**。
+
+### 启用：两个变量 + 一处凭据
 
 ```yaml
 # values/<系统>/sys_value.yml —— 站点值是**平铺的大写键**，不是嵌套结构
-COMPOSE_PROFILES: harvest              # ① 容器才会起
-HARVEST_TENANT_ID: CUST-1              # ② 客户 id（= configs/cells/cells.json 的 cust_id）
-HARVEST_SINK_ENDPOINT: 10.0.0.12:9101  # ③ 数据面的 harvest_1 source（容器可达的 host:port）
+HARVEST_ENABLED: true                  # ① 渲染真实数据源 + 允许调度
+HARVEST_SINK_ENDPOINT: 10.0.0.12:9101  # ② 数据面的 harvest_1 source（容器可达的 host:port）
 HARVEST_VENDOR: tencent                # tencent | aws
 # HARVEST_REGIONS: auto                # auto | 逗号分隔的固定地域
 # HARVEST_BILLING_ACCOUNT: ""          # 账单账号（腾讯云 UIN）；空 = 只采资产
 ```
 
 ```bash
-# ④ 凭据：真值只落在 .wist/sec-value.yml（属组 = 容器 gid，harvest 以 10001 读它）；
+# ③ 凭据：真值只落在 .wist/sec-value.yml（属组 = 容器 gid，harvest 以 10001 读它）；
 #    **不进 compose 环境变量** —— 否则 `docker inspect` 里能直接看到。
 printf 'SEC_TENCENT_SECRET_ID: %s\nSEC_TENCENT_SECRET_KEY: %s\n' "$ID" "$KEY" >> .wist/sec-value.yml
 gops sys localize     # 渲染 configs/harvest/ + 建 spool/state + 对齐权限
-gops run start        # 带 profile 起（或手动 docker compose --profile harvest …）
+gops run start        # 改 enabled 后重启即生效（不用重新部署）
 ```
 
 缺一件的表现都是**当场可见**，不会静默错数据：
 
 | 缺什么 | 表现 |
 | --- | --- |
-| `HARVEST_TENANT_ID` 或 `HARVEST_SINK_ENDPOINT` | 数据源渲染成「只有注释」→ 容器 `source_config` FAIL（**不会**拿空租户去云上采一遍） |
-| `COMPOSE_PROFILES` 少了 `harvest` | 容器不起，配置留着；`localize` 会打一条 note 提醒 |
+| `HARVEST_ENABLED` 不是 `true` | 数据源渲染成「只有注释」→ 容器常驻但不调度（`diagnose` 只探活 + 检查目录） |
+| `HARVEST_SINK_ENDPOINT` 为空 | 同上（快照发不出去就不采） |
 | 凭据没写 / 权限不对 | `diagnose` 的 `credential` 项 FAIL（healthcheck 变 unhealthy） |
+
+> **采集器不认识客户 / 租户**：一个数据面只服务一个客户，客户身份由发送通道在入库时打上
+> （wparse 全局 tag `tenant_id`，来自 gwlinkd 写的 `WIST_TENANT_ID`）。
 
 ### 配置在哪一层
 
@@ -422,7 +427,7 @@ gops run start        # 带 profile 起（或手动 docker compose --profile har
 | 文件 | 放什么 |
 | --- | --- |
 | `configs/harvest/harvest.toml` | 服务参数：spool/state 目录、页大小、帧响应上限、超时、限速、**sink 端点** |
-| `configs/harvest/sources.d/source.toml` | 数据源：`source_code` / 租户 / `vendor` / 地域 / `[assets]` 开关 / `[credential]` 引用 / `[cost]` |
+| `configs/harvest/sources.d/source.toml` | 数据源：`source_code` / `vendor` / 地域 / `[assets]` 开关 / `[credential]` 引用 / `[cost]` |
 
 文件名固定是 `source.toml`（`gx.tpl` 的 dst 不认变量）：模板与 compose 两边写同一个名字，
 永远不会出现「渲染到 A、容器读 B」。**身份是文件里的 `source_code`**，不是文件名。
@@ -433,7 +438,7 @@ gops run start        # 带 profile 起（或手动 docker compose --profile har
 
 | 层 | 位置 | 放什么 | **不能**放什么 |
 | --- | --- | --- | --- |
-| 现场配置 | `values/<系统>/sys_value.yml` → `HARVEST_*` | 租户、sink 端点、地域范围、账单账号、AWS 分区、启用开关 | 签名、分页协议、字段映射 |
+| 现场配置 | `values/<系统>/sys_value.yml` → `HARVEST_*` | sink 端点、地域范围、账单账号、AWS 分区、启用开关 | 签名、分页协议、字段映射 |
 | 产品配置 | `sys/configs/harvest/*.tpl` | 所有云都一样的运行参数（页大小 / 帧上限 / 超时 / 限速）、`[assets]` 默认值、凭据**引用** | 任何一家的字段名、金额或时间解析 |
 | 厂商代码 | `wist-harvest/crates/harvest-{vendor}` | 签名（SigV4 / TC3）、端点、分页、错误码→分类、字段归一、coverage 判据、账单 reader | 现场值（租户、地域、配额） |
 | 共享代码 | `wist-harvest/crates/harvest-core` | 快照契约、`scope`/`snap_id`、spool/manifest/续跑、状态机、完整性框架、分页驱动、限速/重试、脱敏、report、sink | 任何云 API 的形状 |

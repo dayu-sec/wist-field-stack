@@ -139,11 +139,14 @@ system:
   # warp-parse**（`harvest_1` source）。所以**没有宿主端口**，启用开关是两个变量。
   #
   # 三件套缺一件的表现（都是当场能看到，不是静默错数据）：
-  #   缺 HARVEST_TENANT_ID     → 数据源渲染成「只有注释」→ 容器 `source_config` FAIL
-  #   缺 HARVEST_SINK_ENDPOINT → 同上（快照发不出去就不采）
-  #   COMPOSE_PROFILES 没加 harvest → 容器根本不会起（配置留着，下次生效）
+  #   HARVEST_ENABLED 不为 true → 数据源渲染成「只有注释」→ 容器 `source_config` FAIL
+  #   HARVEST_SINK_ENDPOINT 为空 → 同上（快照发不出去就不采）
+  #   凭据缺失 / 权限不对 → `diagnose` 的 credential 项 FAIL（healthcheck 变 unhealthy）
+  #
+  # **采集器不认识客户 / 租户**：一个数据面只服务一个客户，客户身份由发送通道在入库时打上
+  # （wparse 全局 tag `tenant_id`，来自 gwlinkd 写的 `WIST_TENANT_ID`）。
   - name: HARVEST_IMAGE_TAG
-    value: v0.1.1-alpha
+    value: v0.4.0-alpha
   # 运行态：spool（收齐之前不发送）与 state（租约 / 报告 / **账单分片**）。
   # 现场建议换成独立数据盘：state/cost 是 wist-cost 的输入。
   - name: HARVEST_RUN_DIR
@@ -152,10 +155,9 @@ system:
   # **本栈不跑 wparse**，所以这必须是「从 harvest 容器可达」的外部地址。空 = 不启用。
   - name: HARVEST_SINK_ENDPOINT
     value: ""
-  # 数据源身份：租户 = 客户 id（与 `configs/cells/cells.json` 的 cust_id 同源）。
-  # 空 = 不渲染数据源（采集不启用）—— 绝不拿空租户去采。
-  - name: HARVEST_TENANT_ID
-    value: ""
+  # 采集开关：只有 true 才渲染数据源（否则渲染成「只有注释」，采集不启用）。
+  - name: HARVEST_ENABLED
+    value: "false"
   # source_code 是**下游的资源匹配键**：换实现（换厂商 / 换语言）不能换它。
   - name: HARVEST_SOURCE_CODE
     value: tencent-cloud-prod
@@ -180,10 +182,6 @@ system:
   # AWS 分区（只在 vendor=aws 时渲染）：aws | aws-cn | aws-us-gov。
   - name: HARVEST_AWS_PARTITION
     value: aws
-  # 启用哪些 compose profile（**逗号分隔；空 = 不启用任何可选服务**）。
-  # 目前只有一个可选服务：`harvest`（云资产采集）。
-  - name: COMPOSE_PROFILES
-    value: ""
 
   # 两个 PG（证据 / 资产生命周期不同，刻意分开）。
   # **每个客户各一对**，由 `sys/scripts/add-customer.sh` 建、`configs/cells/compose.yml` 编排；

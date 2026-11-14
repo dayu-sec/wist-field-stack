@@ -14,7 +14,7 @@ include:
 #   evidence    wist-evidence：索引 + 对象存储（正文只在计算区与 COS 之间流动）
 #   atlas       wist-atlas：资产与拓扑 API（读接口要 Bearer 令牌）
 #   metrics     VictoriaMetrics：数据面 remote-write 进来的运行指标
-#   harvest     wist-harvest：**可选**（profile=harvest）。去云 API 拉资产事实，
+#   harvest     wist-harvest：**常驻**（开关走 [service] enabled，不是安装期决定）。去云 API 拉资产事实，
 #               一个采集组的完整快照发给数据面。**没有宿主端口**（只出站）。
 #   两个 PG     证据与资产生命周期不同，刻意分开：**每个客户各一对**（由
 #               `configs/cells/compose.yml` 生成），本文件没有再写默认库。
@@ -129,7 +129,7 @@ services:
       retries: 3
       start_period: 30s
 
-  # ── 云资产采集（**可选**：profile=harvest，默认不启）─────────
+  # ── 云资产采集（**常驻**；开关走 [service] enabled）──────────
   #
   # 只做两件事：出网到云 API、出站把快照帧发给**数据面的 warp-parse**
   # （`harvest_1` source，framing=len）。所以：
@@ -137,16 +137,15 @@ services:
   #   · `sink.endpoint` 是**现场值**（`HARVEST_SINK_ENDPOINT`）：本栈不跑 wparse，
   #     端点指向另一套栈的数据面，必须是容器可达的 host:port。
   #
-  # 启用：`COMPOSE_PROFILES=harvest` + `HARVEST_TENANT_ID` + `HARVEST_SINK_ENDPOINT`
-  # 三件都齐（前两个决定渲染出真实数据源，第三个决定容器启不启）。少一件的症状写得很清楚：
-  # 渲染成「只有注释的 source.toml」、容器起来就 `source_config` FAIL。
+  # 启用：`HARVEST_ENABLED=true`（渲染 `enabled = true`）+ `HARVEST_SINK_ENDPOINT`
+  # 两个都齐才真的采。本栈没有中心（网关）在那里，所以开关就是这一个变量；
+  # 关掉时数据源渲染成「只有注释」，容器仍常驻、healthcheck 只探活 + 检查目录。
   #
   # 运行身份 10001：与 evidence / field-api 一致（宿主侧挂载属组由 `gops sys perms` 对齐）。
   # spool / state 必须可写：收齐之前不发送，state 里还有账单分片（wist-cost 读它）。
   harvest:
     container_name: wist-field-stack-harvest
     image: ${FIELD_REGISTRY}/wist-harvest:${HARVEST_IMAGE_TAG}
-    profiles: ["harvest"]
     user: "10001:10001"
     restart: unless-stopped
     command:

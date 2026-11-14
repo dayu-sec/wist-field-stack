@@ -68,13 +68,13 @@ system:
 - name: VM_RETENTION
   value: 30d
 - name: HARVEST_IMAGE_TAG
-  value: v0.1.1-alpha
+  value: v0.4.0-alpha
 - name: HARVEST_RUN_DIR
   value: ./harvest-run
 - name: HARVEST_SINK_ENDPOINT
   value: ''
-- name: HARVEST_TENANT_ID
-  value: ''
+- name: HARVEST_ENABLED
+  value: 'false'
 - name: HARVEST_SOURCE_CODE
   value: tencent-cloud-prod
 - name: HARVEST_VENDOR
@@ -91,8 +91,6 @@ system:
   value: ''
 - name: HARVEST_AWS_PARTITION
   value: aws
-- name: COMPOSE_PROFILES
-  value: ''
 - name: PG_BIND_IP
   value: 127.0.0.1
 - name: EVIDENCE_PG_DB
