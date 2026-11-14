@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 0.5.9-alpha · 2026-11-13
+
+**采集器跟进 `wist-harvest 0.5.0`：线上记录改用 `DSNAP:` 信封。**
+
+- `HARVEST_IMAGE_TAG`：`v0.4.0-alpha` → `v0.5.0-alpha`。
+- 帧信封不再是采集器专用的 `CLOUDINV:`，而是与 `wist-agentd` 一致的
+  `{schema,agent,ts,seq} DSNAP: <正文>`，`schema` = `atlas.in.inventory.v1`（atlas 的既定契约键）。
+- 本栈只是发送方：`HARVEST_SINK_ENDPOINT` 指向的数据面用现成的 dsnap 规则接住，
+  **不需要为采集器加任何 WPL / OML / sink 分组**。
+
+升级影响：**wire 不兼容**。采集器不早于数据面升级：新采集器发 `DSNAP:` 帧在旧数据面上能工作
+（`schema` 原样透传），旧采集器发 `CLOUDINV:` 帧在新数据面上会落 `miss.dat`。
+
 ## 0.5.8-alpha · 2026-11-13
 
 **数据面入口统一：`HARVEST_SINK_ENDPOINT` 指向 `warp-parse` 的 `tcp_1`（默认 9000），不再是采集专用端口。**

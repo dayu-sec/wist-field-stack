@@ -146,7 +146,7 @@ system:
   # **采集器不认识客户 / 租户**：一个数据面只服务一个客户，客户身份由发送通道在入库时打上
   # （wparse 全局 tag `tenant_id`，来自 gwlinkd 写的 `WIST_TENANT_ID`）。
   - name: HARVEST_IMAGE_TAG
-    value: v0.4.0-alpha
+    value: v0.5.0-alpha
   # 运行态：spool（收齐之前不发送）与 state（租约 / 报告 / **账单分片**）。
   # 现场建议换成独立数据盘：state/cost 是 wist-cost 的输入。
   - name: HARVEST_RUN_DIR
