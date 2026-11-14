@@ -133,10 +133,10 @@ system:
   - name: VM_RETENTION
     value: 30d
 
-  # ── 云资产采集（wist-harvest）：**可选服务**，compose profile = harvest ──────
+  # ── 云资产采集（wist-harvest）：**常驻服务**，开关是 HARVEST_ENABLED ──────
   #
   # 它不做界面：只去云 API 拉资产事实，再把「一个采集组的完整快照」发给**数据面的
-  # warp-parse**（`harvest_1` source）。所以**没有宿主端口**，启用开关是两个变量。
+  # warp-parse 统一入口**（`tcp_1`，默认容器内 9000）。所以**没有宿主端口**。
   #
   # 三件套缺一件的表现（都是当场能看到，不是静默错数据）：
   #   HARVEST_ENABLED 不为 true → 数据源渲染成「只有注释」→ 容器 `source_config` FAIL
@@ -151,7 +151,7 @@ system:
   # 现场建议换成独立数据盘：state/cost 是 wist-cost 的输入。
   - name: HARVEST_RUN_DIR
     value: ./harvest-run
-  # 数据平面 sink：`host:port`，指向 warp-parse 的 `harvest_1` source（framing=len）。
+  # 数据平面 sink：`host:port`，指向 warp-parse 的**统一入口**（默认 9000，framing=len）。
   # **本栈不跑 wparse**，所以这必须是「从 harvest 容器可达」的外部地址。空 = 不启用。
   - name: HARVEST_SINK_ENDPOINT
     value: ""

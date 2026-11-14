@@ -438,7 +438,7 @@ HARVEST_BILLING_ACCOUNT="$(ident_like HARVEST_BILLING_ACCOUNT "${HARVEST_BILLING
 HARVEST_SINK_ENDPOINT="$(host_like HARVEST_SINK_ENDPOINT "${HARVEST_SINK_ENDPOINT:-}")"
 case "${HARVEST_SINK_ENDPOINT}" in
   '' | *:*) ;;
-  *) die "HARVEST_SINK_ENDPOINT 需要 host:port 形式（warp-parse 的 harvest_1 source）：'${HARVEST_SINK_ENDPOINT}'" ;;
+  *) die "HARVEST_SINK_ENDPOINT 需要 host:port 形式（warp-parse 的统一入口，默认 9000）：'${HARVEST_SINK_ENDPOINT}'" ;;
 esac
 
 # 厂商 → 凭据键 + vendor_options + 成本能力。这些都是**配置数据**，不是逻辑。

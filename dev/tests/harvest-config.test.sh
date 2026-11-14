@@ -151,7 +151,7 @@ else
 fi
 
 echo "② 腾讯云 + 账单账号：启用"
-with_env HARVEST_ENABLED=true HARVEST_SINK_ENDPOINT=wparse:9101 \
+with_env HARVEST_ENABLED=true HARVEST_SINK_ENDPOINT=wparse:9000 \
   HARVEST_BILLING_ACCOUNT=100041355715 -- sandbox_run init-field-config.sh \
   || test_no "init-field-config.sh（启用态）失败"
 expect "harvest_enabled" "true" "$(jraw harvest_enabled)"
@@ -172,7 +172,7 @@ if [ "${render_rc}" -ne 2 ]; then
       test_no "数据源里缺 ${line}"
     fi
   done
-  if grep -q '^endpoint = "wparse:9101"$' "${SERVICE_TOML}"; then
+  if grep -q '^endpoint = "wparse:9000"$' "${SERVICE_TOML}"; then
     test_ok "服务配置渲染出现场 sink 端点"
   else
     test_no "服务配置没有渲染出 sink 端点"
@@ -198,7 +198,7 @@ PY
 fi
 
 echo "③ AWS：厂商专属的凭据键 / vendor_options / 地域列表"
-with_env HARVEST_ENABLED=true HARVEST_SINK_ENDPOINT=wparse:9101 HARVEST_VENDOR=aws \
+with_env HARVEST_ENABLED=true HARVEST_SINK_ENDPOINT=wparse:9000 HARVEST_VENDOR=aws \
   HARVEST_AWS_PARTITION=aws-cn HARVEST_SOURCE_CODE=aws-prod \
   HARVEST_REGIONS='ap-east-1, us-east-1' HARVEST_BILLING_ACCOUNT=123456789012 \
   -- sandbox_run init-field-config.sh || test_no "init-field-config.sh（AWS）失败"
@@ -319,7 +319,7 @@ else
 fi
 
 echo "⑥ 配错就当场失败（不静默）"
-if with_env HARVEST_ENABLED=true HARVEST_SINK_ENDPOINT=wparse:9101 HARVEST_VENDOR=gcp \
+if with_env HARVEST_ENABLED=true HARVEST_SINK_ENDPOINT=wparse:9000 HARVEST_VENDOR=gcp \
   -- sandbox_run init-field-config.sh; then
   test_no "未知厂商应该被拒绝"
 else

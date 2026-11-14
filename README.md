@@ -379,7 +379,7 @@ bash sys/scripts/add-customer.sh --remove <cust_id> --purge-data  # 连容器与
   （同一棵 React 树、同一套主题/键盘/搜索），数据经 BFF 的 `/api/atlas/*` 读 atlas。
 - 本栈**不包含** `wist-center`：center 在接入区，证据/资产在计算区，两边不混。
 - 本栈**不跑数据面**（warp-parse）。所以 `harvest` 只做生产者：入站为零，出站两处
-  （云 API + 数据面的 `harvest_1` source）。
+  （云 API + 数据面的统一入口 `tcp_1`，默认 9000）。
 
 ## 云资产采集（harvest，常驻）
 
@@ -395,7 +395,7 @@ bash sys/scripts/add-customer.sh --remove <cust_id> --purge-data  # 连容器与
 ```yaml
 # values/<系统>/sys_value.yml —— 站点值是**平铺的大写键**，不是嵌套结构
 HARVEST_ENABLED: true                  # ① 渲染真实数据源 + 允许调度
-HARVEST_SINK_ENDPOINT: 10.0.0.12:9101  # ② 数据面的 harvest_1 source（容器可达的 host:port）
+HARVEST_SINK_ENDPOINT: 10.0.0.12:9000  # ② 数据面统一入口（容器可达的 host:port）
 HARVEST_VENDOR: tencent                # tencent | aws
 # HARVEST_REGIONS: auto                # auto | 逗号分隔的固定地域
 # HARVEST_BILLING_ACCOUNT: ""          # 账单账号（腾讯云 UIN）；空 = 只采资产

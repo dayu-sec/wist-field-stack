@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 0.5.8-alpha · 2026-11-13
+
+**数据面入口统一：`HARVEST_SINK_ENDPOINT` 指向 `warp-parse` 的 `tcp_1`（默认 9000），不再是采集专用端口。**
+
+网关栈 `0.14.1-alpha` 删掉了 `harvest_1` source（原容器内 9001）：采集与 agentd 上送共用一个入口，
+靠 WPL 的 `CLOUDINV:` 标记区分。本栈只是把配置里的地址写对：
+
+- `HARVEST_SINK_ENDPOINT` 的示例 / 注释 / 错误提示 / README 全部改成「统一入口（默认 9000）」。
+- 渲染产物 `configs/harvest/harvest.toml` 的 `[sink] endpoint` 本来就从变量取，无须改模版逻辑。
+
+升级影响：只有仍在用 9001 的现场需要把 `HARVEST_SINK_ENDPOINT` 改成对应数据面的 9000，
+然后 `gops sys localize && gops run start`。不启用采集的现场无变化。
+
 ## 0.5.7-alpha · 2026-11-13
 
 **`harvest` 常驻，开关只靠 `HARVEST_ENABLED`；采集器不再感知客户 / 租户。**

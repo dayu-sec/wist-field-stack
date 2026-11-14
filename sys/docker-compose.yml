@@ -132,7 +132,7 @@ services:
   # ── 云资产采集（**常驻**；开关走 [service] enabled）──────────
   #
   # 只做两件事：出网到云 API、出站把快照帧发给**数据面的 warp-parse**
-  # （`harvest_1` source，framing=len）。所以：
+  # （统一入口 `tcp_1`，默认容器内 9000，framing=len）。所以：
   #   · **不发布任何宿主端口** —— 它没有入站面；
   #   · `sink.endpoint` 是**现场值**（`HARVEST_SINK_ENDPOINT`）：本栈不跑 wparse，
   #     端点指向另一套栈的数据面，必须是容器可达的 host:port。

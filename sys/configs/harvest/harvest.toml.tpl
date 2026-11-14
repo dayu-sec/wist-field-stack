@@ -44,7 +44,7 @@ default_qps = 5.0
 default_burst = 5.0
 
 [sink]
-# 数据平面入口：**warp-parse 的 `harvest_1` source**（`framing = "len"`、ndjson）。
+# 数据平面入口：**warp-parse 的统一入口 `tcp_1`**（默认容器内 9000，`framing = "len"`、ndjson）。
 #
 # 本栈**不跑 wparse**（数据面在网关栈），所以这是现场值：填一个「从 harvest 容器可达的
 # host:port」。留空 = 采集不启用（另见 `HARVEST_TENANT_ID`：两个都齐才算启用）。

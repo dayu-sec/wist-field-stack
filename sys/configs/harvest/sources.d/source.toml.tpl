@@ -68,7 +68,7 @@ currency = "{{harvest_cost_currency}}"
 #
 # 启用步骤（现场值写 `values/<系统>/sys_value.yml`，然后 `gops sys localize`）：
 #   1. HARVEST_ENABLED       = true（采集器不感知客户，身份由发送通道打标）
-#   2. HARVEST_SINK_ENDPOINT = warp-parse 的 `harvest_1` source，`host:port`，**容器可达**
+#   2. HARVEST_SINK_ENDPOINT = warp-parse 的统一入口（默认端口 9000），`host:port`，**容器可达**
 #   3. HARVEST_VENDOR        = tencent | aws
 #   5. 凭据写进 `.wist/sec-value.yml`（腾讯云：SEC_TENCENT_SECRET_ID / SEC_TENCENT_SECRET_KEY），
 #      再跑 `gops sys perms --apply` 把属组对到容器 gid（10001）。
