@@ -133,56 +133,6 @@ system:
   - name: VM_RETENTION
     value: 30d
 
-  # ── 云资产采集（wist-harvest）：**常驻服务**，开关是 HARVEST_ENABLED ──────
-  #
-  # 它不做界面：只去云 API 拉资产事实，再把「一个采集组的完整快照」发给**数据面的
-  # warp-parse 统一入口**（`tcp_1`，默认容器内 9000）。所以**没有宿主端口**。
-  #
-  # 三件套缺一件的表现（都是当场能看到，不是静默错数据）：
-  #   HARVEST_ENABLED 不为 true → 数据源渲染成「只有注释」→ 容器 `source_config` FAIL
-  #   HARVEST_SINK_ENDPOINT 为空 → 同上（快照发不出去就不采）
-  #   凭据缺失 / 权限不对 → `diagnose` 的 credential 项 FAIL（healthcheck 变 unhealthy）
-  #
-  # **采集器不认识客户 / 租户**：一个数据面只服务一个客户，客户身份由发送通道在入库时打上
-  # （wparse 全局 tag `tenant_id`，来自 gwlinkd 写的 `WIST_TENANT_ID`）。
-  - name: HARVEST_IMAGE_TAG
-    value: v0.5.0-alpha
-  # 运行态：spool（收齐之前不发送）与 state（租约 / 报告 / **账单分片**）。
-  # 现场建议换成独立数据盘：state/cost 是 wist-cost 的输入。
-  - name: HARVEST_RUN_DIR
-    value: ./harvest-run
-  # 数据平面 sink：`host:port`，指向 warp-parse 的**统一入口**（默认 9000，framing=len）。
-  # **本栈不跑 wparse**，所以这必须是「从 harvest 容器可达」的外部地址。空 = 不启用。
-  - name: HARVEST_SINK_ENDPOINT
-    value: ""
-  # 采集开关：只有 true 才渲染数据源（否则渲染成「只有注释」，采集不启用）。
-  - name: HARVEST_ENABLED
-    value: "false"
-  # source_code 是**下游的资源匹配键**：换实现（换厂商 / 换语言）不能换它。
-  - name: HARVEST_SOURCE_CODE
-    value: tencent-cloud-prod
-  # 厂商：tencent | aws（渲染成 harvest 认的字面量 TENCENT_CLOUD / AWS）。
-  # 凭据键名与 `[vendor_options]` 跟着它变（腾讯云 secret_id/secret_key，AWS access_key_id/...）。
-  - name: HARVEST_VENDOR
-    value: tencent
-  - name: HARVEST_ENV_REF
-    value: prod
-  # 地域范围：auto（运行时 DescribeRegions，只取 AVAILABLE）或逗号分隔的固定列表。
-  - name: HARVEST_REGIONS
-    value: auto
-  # 每日定点（Asia/Shanghai）+ 抖动上限（秒）：多站点错峰，避免同时打云 API。
-  - name: HARVEST_RUN_AT
-    value: "00:30"
-  - name: HARVEST_JITTER_SECONDS
-    value: "300"
-  # 账单账号（腾讯云 UIN / AWS 账号 id）：空 = 只采资产，不渲染成本链路。
-  # 账单接口按它记账，与凭据没有推导关系，所以必须显式给。
-  - name: HARVEST_BILLING_ACCOUNT
-    value: ""
-  # AWS 分区（只在 vendor=aws 时渲染）：aws | aws-cn | aws-us-gov。
-  - name: HARVEST_AWS_PARTITION
-    value: aws
-
   # 两个 PG（证据 / 资产生命周期不同，刻意分开）。
   # **每个客户各一对**，由 `sys/scripts/add-customer.sh` 建、`configs/cells/compose.yml` 编排；
   # 本文件只给它们共用的库名 / 用户 / 口令（0.5.0 起没有默认库，所以也没有它们的宿主端口）。

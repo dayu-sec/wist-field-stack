@@ -14,8 +14,6 @@ include:
 #   evidence    wist-evidence：索引 + 对象存储（正文只在计算区与 COS 之间流动）
 #   atlas       wist-atlas：资产与拓扑 API（读接口要 Bearer 令牌）
 #   metrics     VictoriaMetrics：数据面 remote-write 进来的运行指标
-#   harvest     wist-harvest：**常驻**（开关走 [service] enabled，不是安装期决定）。去云 API 拉资产事实，
-#               一个采集组的完整快照发给数据面。**没有宿主端口**（只出站）。
 #   两个 PG     证据与资产生命周期不同，刻意分开：**每个客户各一对**（由
 #               `configs/cells/compose.yml` 生成），本文件没有再写默认库。
 #
@@ -128,57 +126,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-
-  # ── 云资产采集（**常驻**；开关走 [service] enabled）──────────
-  #
-  # 只做两件事：出网到云 API、出站把快照帧发给**数据面的 warp-parse**
-  # （统一入口 `tcp_1`，默认容器内 9000，framing=len）。所以：
-  #   · **不发布任何宿主端口** —— 它没有入站面；
-  #   · `sink.endpoint` 是**现场值**（`HARVEST_SINK_ENDPOINT`）：本栈不跑 wparse，
-  #     端点指向另一套栈的数据面，必须是容器可达的 host:port。
-  #
-  # 启用：`HARVEST_ENABLED=true`（渲染 `enabled = true`）+ `HARVEST_SINK_ENDPOINT`
-  # 两个都齐才真的采。本栈没有中心（网关）在那里，所以开关就是这一个变量；
-  # 关掉时数据源渲染成「只有注释」，容器仍常驻、healthcheck 只探活 + 检查目录。
-  #
-  # 运行身份 10001：与 evidence / field-api 一致（宿主侧挂载属组由 `gops sys perms` 对齐）。
-  # spool / state 必须可写：收齐之前不发送，state 里还有账单分片（wist-cost 读它）。
-  harvest:
-    container_name: wist-field-stack-harvest
-    image: ${FIELD_REGISTRY}/wist-harvest:${HARVEST_IMAGE_TAG}
-    user: "10001:10001"
-    restart: unless-stopped
-    command:
-      - "run"
-      - "--config"
-      - "/etc/wist-harvest/harvest.toml"
-      - "--source"
-      - "/etc/wist-harvest/sources.d/source.toml"
-      - "--run-at"
-      - "${HARVEST_RUN_AT}"
-      - "--jitter"
-      - "${HARVEST_JITTER_SECONDS}s"
-    environment:
-      TZ: ${TZ}
-    volumes:
-      # 渲染产物（harvest.toml + sources.d/source.toml），只读。
-      - ./configs/harvest:/etc/wist-harvest:ro
-      # 密钥真值（`.wist/sec-value.yml`，0640）：数据源里的 `[credential]` 就是指向它的
-      # `{ file = ..., field = "SEC_..." }` 引用 —— **不走 compose 环境变量**，
-      # 否则 `docker inspect` 里会看到明文。
-      - ./.wist:/sec:ro
-      - ${HARVEST_RUN_DIR:-./harvest-run}/spool:/var/lib/wist-harvest/spool
-      - ${HARVEST_RUN_DIR:-./harvest-run}/state:/var/lib/wist-harvest/state
-    healthcheck:
-      # `diagnose`：**离线、非交互、不输出凭据**，只校验配置/凭据能不能读/目录能不能写/
-      # sink 形态对不对（不拨号：对端一忙就重启采集器反而放大故障）。
-      test: ["CMD", "/usr/local/bin/wist-harvest", "diagnose", "--quiet",
-             "--config", "/etc/wist-harvest/harvest.toml",
-             "--source", "/etc/wist-harvest/sources.d/source.toml"]
-      interval: 60s
-      timeout: 15s
-      retries: 3
-      start_period: 20s
 
   field-api:
     container_name: wist-field-stack-field-api

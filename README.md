@@ -18,7 +18,6 @@
 | `evidence` | 证据索引 + 对象存储 | 写 `${EVIDENCE_SINK_BIND_IP}:${EVIDENCE_SINK_HOST_PORT}:8080`；读仅网络内 `:${EVIDENCE_READ_PORT}` | `wist-evidence` |
 | `atlas` | 资产与拓扑 API（读接口要 Bearer 令牌） | 写 `${ATLAS_INGEST_BIND_IP}:${ATLAS_INGEST_HOST_PORT}:8080`；读仅网络内 `:8080` | `wist-atlas` |
 | `metrics` | 运行指标（VictoriaMetrics） | `${VM_BIND_IP}:${VM_HOST_PORT}:8428` | `victoriametrics/victoria-metrics` |
-| `harvest` | 云资产采集（**可选**，`profiles: [harvest]`）：去云 API 拉资产事实 → 数据面 | 无宿主端口（只出站） | `wist-harvest` |
 | `pg-<cust>` | 证据索引库（**每客户一个**） | 仅 compose 网络（要排查用 `add-customer.sh <cust> --pg-port`） | `postgres` |
 | `pg-<cust>-atlas` | 资产库（**每客户一个**） | 同上 | `postgres` |
 
@@ -378,91 +377,7 @@ bash sys/scripts/add-customer.sh --remove <cust_id> --purge-data  # 连容器与
 - **没有 `atlas-web` 容器**：画布自 `wist-atlas-graph@0.4` 起是 field-web 的一个 React 组件
   （同一棵 React 树、同一套主题/键盘/搜索），数据经 BFF 的 `/api/atlas/*` 读 atlas。
 - 本栈**不包含** `wist-center`：center 在接入区，证据/资产在计算区，两边不混。
-- 本栈**不跑数据面**（warp-parse）。所以 `harvest` 只做生产者：入站为零，出站两处
-  （云 API + 数据面的统一入口 `tcp_1`，默认 9000）。
-
-## 云资产采集（harvest，常驻）
-
-`harvest` 是**常驻服务**（装完就在跑），开关是 `HARVEST_ENABLED`：
-去云账号拉资产事实 → 归一成既有字段名 → 落本地 spool → 完整性校验 →
-**一个采集组的完整快照**发给数据面（任一步失败即 Aborted，数据平面零帧）。
-
-> 本栈没有中心（网关）在那里，所以开关就是 `HARVEST_ENABLED` 这一个变量。
-> 网关栈里的 harvest 不一样：它按 `harvest.enabled` 轮询中心，页面上一键开关，**不用重部署**。
-
-### 启用：两个变量 + 一处凭据
-
-```yaml
-# values/<系统>/sys_value.yml —— 站点值是**平铺的大写键**，不是嵌套结构
-HARVEST_ENABLED: true                  # ① 渲染真实数据源 + 允许调度
-HARVEST_SINK_ENDPOINT: 10.0.0.12:9000  # ② 数据面统一入口（容器可达的 host:port）
-HARVEST_VENDOR: tencent                # tencent | aws
-# HARVEST_REGIONS: auto                # auto | 逗号分隔的固定地域
-# HARVEST_BILLING_ACCOUNT: ""          # 账单账号（腾讯云 UIN）；空 = 只采资产
-```
-
-```bash
-# ③ 凭据：真值只落在 .wist/sec-value.yml（属组 = 容器 gid，harvest 以 10001 读它）；
-#    **不进 compose 环境变量** —— 否则 `docker inspect` 里能直接看到。
-printf 'SEC_TENCENT_SECRET_ID: %s\nSEC_TENCENT_SECRET_KEY: %s\n' "$ID" "$KEY" >> .wist/sec-value.yml
-gops sys localize     # 渲染 configs/harvest/ + 建 spool/state + 对齐权限
-gops run start        # 改 enabled 后重启即生效（不用重新部署）
-```
-
-缺一件的表现都是**当场可见**，不会静默错数据：
-
-| 缺什么 | 表现 |
-| --- | --- |
-| `HARVEST_ENABLED` 不是 `true` | 数据源渲染成「只有注释」→ 容器常驻但不调度（`diagnose` 只探活 + 检查目录） |
-| `HARVEST_SINK_ENDPOINT` 为空 | 同上（快照发不出去就不采） |
-| 凭据没写 / 权限不对 | `diagnose` 的 `credential` 项 FAIL（healthcheck 变 unhealthy） |
-
-> **采集器不认识客户 / 租户**：一个数据面只服务一个客户，客户身份由发送通道在入库时打上
-> （wparse 全局 tag `tenant_id`，来自 gwlinkd 写的 `WIST_TENANT_ID`）。
-
-### 配置在哪一层
-
-`configs/harvest/` 是**渲染产物**（源是 `sys/configs/harvest/*.tpl` + `harvest.value.json`）：
-
-| 文件 | 放什么 |
-| --- | --- |
-| `configs/harvest/harvest.toml` | 服务参数：spool/state 目录、页大小、帧响应上限、超时、限速、**sink 端点** |
-| `configs/harvest/sources.d/source.toml` | 数据源：`source_code` / `vendor` / 地域 / `[assets]` 开关 / `[credential]` 引用 / `[cost]` |
-
-文件名固定是 `source.toml`（`gx.tpl` 的 dst 不认变量）：模板与 compose 两边写同一个名字，
-永远不会出现「渲染到 A、容器读 B」。**身份是文件里的 `source_code`**，不是文件名。
-
-### 再增加一家云：什么进配置、什么进代码
-
-这是这套分层唯一的验收线（厂商侧细节见 wist-harvest 仓 README 的「多云」表）：
-
-| 层 | 位置 | 放什么 | **不能**放什么 |
-| --- | --- | --- | --- |
-| 现场配置 | `values/<系统>/sys_value.yml` → `HARVEST_*` | sink 端点、地域范围、账单账号、AWS 分区、启用开关 | 签名、分页协议、字段映射 |
-| 产品配置 | `sys/configs/harvest/*.tpl` | 所有云都一样的运行参数（页大小 / 帧上限 / 超时 / 限速）、`[assets]` 默认值、凭据**引用** | 任何一家的字段名、金额或时间解析 |
-| 厂商代码 | `wist-harvest/crates/harvest-{vendor}` | 签名（SigV4 / TC3）、端点、分页、错误码→分类、字段归一、coverage 判据、账单 reader | 现场值（租户、地域、配额） |
-| 共享代码 | `wist-harvest/crates/harvest-core` | 快照契约、`scope`/`snap_id`、spool/manifest/续跑、状态机、完整性框架、分页驱动、限速/重试、脱敏、report、sink | 任何云 API 的形状 |
-| 栈侧胶水 | `sys/scripts/init-field-config.sh` ⑥ | 厂商 → 凭据键名 + `[vendor_options]` 的**映射数据** | 任何逻辑（判别 / 计算 / 解析） |
-
-一句话：**新加一家云 = 加一个 crate + 在脚本 ⑥ 的 case 里加一行**。
-`sys/configs` 的模板不动、core 不动、别的厂商的 crate 不动 —— 这就是 P1 的验收线。
-
-两条硬规则：
-
-1. **配置只能收紧能力**：`assets.vpc = false` 合法；打开一个该云不提供的类型必须
-   在启动 / 计划阶段失败，不能静默跳过。
-2. **有逻辑的东西不进配置**：字段路径、分页终止条件、金额 / 时间解析、状态枚举、去重键、
-   签名算法。它们写错**不会报错**，只会静默错数据 —— 必须是可编译、可 fixture 测试的代码。
-
-### 已知边界
-
-- **AWS 账单未实现**：`HARVEST_VENDOR=aws` 时脚本不渲染 `billing_account` / `[cost]`
-  （配了账单账号会打一条 note），`wist-harvest cost` 对 AWS 明确报错 ——
-  不会悄悄按腾讯云的口径跑，也不会带着错的币种（CNY ↔ USD）。
-- **STS 临时凭据**：`session_token` 只在 `.wist/sec-value.yml` 真有 `SEC_AWS_SESSION_TOKEN`
-  时才渲染。无条件渲染会让没配 STS 的站点每次读凭据都报「缺少字段」—— 引用指不到东西 = 启动即失败。
-- **一个实例一个云账号**：多账号 = 多加一个 harvest 服务（`sources.d/` 就是为它留的）；
-  当前栈只编排了一个。
+- 本栈**不跑数据面**（warp-parse），也**不做云资产采集**：采集在网关栈（那里才有客户的云凭据与租户绑定）。
 
 ## 本地构建镜像
 

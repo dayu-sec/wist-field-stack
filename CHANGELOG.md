@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## 0.6.0-alpha · 2026-11-13
+
+**移除 `harvest`：云资产采集不属于计算区。**
+
+field-stack 里原来有一个 `wist-harvest`（0.5.5 引入的「可选服务」），但它在本栈没有位置：
+
+- **打不上客户身份**：采集器不感知客户，`cust_id` 靠发送通道的全局 tag（gwlinkd 写的
+  `WP_GLOBAL_TAGS`）在入库时打上。本栈既没有 gwlinkd 也没有 wparse，投给外部数据面时
+  「这是哪个客户的资产」没人能回答；而本栈是**一栈多客户**（`configs/cells/`）。
+- **开关只能部署期定**：本栈没有中心网关，`HARVEST_ENABLED` 是 `values/` 里的值 ——
+  这正是网关栈已经用「页面 → `harvest_setting` → 采集器轮询」替掉的旧做法。
+- **凭据位置不对**：云账号凭据属于具体客户现场（`.wist/sec-value.yml`），放进计算区
+  等于一个区域共享一套云凭据，多客户下不成立。
+
+采集留在**网关栈**（那里有客户的云凭据 + 租户绑定 + 中心开关）；本栈只消费已经入库的资产。
+
+删除面：compose 的 `harvest` 服务、全部 `HARVEST_*` 变量（`vars.yml` / `merged_vars.yml` /
+`.env.example`）、`sys/configs/harvest/*.tpl`、`operators.gxl` 的 ④b/④c 两步、
+`init-field-config.sh` 的厂商映射与渲染值、`init-stack.sh` 的 spool/state 备料、
+`dev/tests/harvest-config.test.sh`，以及 README 的「云资产采集」整节。
+
+升级影响：
+
+- 本栈**从未有站点把 `HARVEST_ENABLED` 置 true**（默认 false，且没有任何站点值打开它），
+  所以运行行为无变化。
+- `gops sys localize` 不再渲染 `configs/harvest/`；旧的 `configs/harvest/` 与 `harvest-run/`
+  留在盘上不影响运行，可手工删（`.gitignore` 仍忽略 `harvest-run/`）。
+- 现场 `values/*/sys_value.yml` 里若还写着 `HARVEST_*`，会被忽略（不再有对应变量）。
+
 ## 0.5.9-alpha · 2026-11-13
 
 **采集器跟进 `wist-harvest 0.5.0`：线上记录改用 `DSNAP:` 信封。**
