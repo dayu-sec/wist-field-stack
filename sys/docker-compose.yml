@@ -137,6 +137,9 @@ services:
     environment:
       WIST_FIELD_CONFIG: /etc/wist-field-api/field-api.toml
       WIST_FIELD_SEC_FILE: /sec/sec-value.yml
+      # 全栈版本（页面左下角展示）：`version.txt` 是唯一真值，compose 把它只读挂进容器，
+      # 不在环境 / `.env` / 镜像里复制一份（与 center-stack / gateway-stack 同口径）。
+      WIST_FIELD_STACK_VERSION_FILE: /config/stack-version.txt
       # ── 下列变量已由 `gx run localize` 渲染进 `configs/field-api/*.toml` ──
       # 配置里已经是字面量（端口 / 数据面视角的主机名 / 认证系统名 / 收数地址），
       # 现场改它们走 `values/<系统>/sys_value.yml` + `gops sys localize`，**不再改配置文件**。
@@ -180,6 +183,9 @@ services:
       # 摘要表（只存 sha256）：验证侧私有状态，重启不丢、不进 PG。
       # 默认 `./data/field-api`；多客户时改成 `<根>/<cust>/field-api`（与凭据一一对应）。
       - ${FIELD_API_STORE_DIR:-./data/field-api}:/var/lib/wist-field-api
+      # 全栈版本（展示用）：`version.txt` 是唯一真值，只读挂进容器；
+      # 镜像只是通道，不在镜像 / 环境变量里复制版本号（与 center-stack / gateway-stack 同口径）。
+      - ./version.txt:/config/stack-version.txt:ro
     healthcheck:
       test: ["CMD", "/bin/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 10s

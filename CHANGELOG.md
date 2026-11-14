@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 未发布
+
+- **全栈版本传给 BFF（与 center-stack / gateway-stack 同口径）**：compose 把栈根
+  `version.txt` **只读挂**进 `field-api`（`./version.txt:/config/stack-version.txt:ro`），
+  并设 `WIST_FIELD_STACK_VERSION_FILE`；BFF 的 `/api/health.stack_version` 运行期读文件回显
+  —— 页面左下角能直接看到「`wist-field-web` / `wist-field-api` / `wist-field-stack` 各跑哪一版」。
+  **版本号不在 `.env` / `vars.yml` / `.env.example` / 镜像里再复制一份**（与 center-stack
+  同一条理由：`version.txt` 是唯一真值，两份一定会漂；且 `.env.example` 被
+  `env-example-drift.test.sh` 钉着与 `merged_vars.yml` 逐键一致）。
+  注意：需要配套的 `wist-field-api`（≥ 0.7.5，`/api/health` 才带这两个字段）。
+
 ## 0.6.0-alpha · 2026-11-13
 
 **移除 `harvest`：云资产采集不属于计算区。**
