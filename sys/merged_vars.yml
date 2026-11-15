@@ -6,7 +6,7 @@ system:
 - name: FIELD_WEB_IMAGE_TAG
   value: v0.2.15-alpha
 - name: EVIDENCE_IMAGE_TAG
-  value: v0.3.2-alpha
+  value: v0.3.3-alpha
 - name: ATLAS_REGISTRY
   value: ghcr.io/dayu-sec
 - name: ATLAS_IMAGE_TAG
