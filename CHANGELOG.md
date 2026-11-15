@@ -1,15 +1,29 @@
 # CHANGELOG
 
-## 未发布
+## 0.6.1-alpha · 2026-11-15
 
-- **全栈版本传给 BFF（与 center-stack / gateway-stack 同口径）**：compose 把栈根
-  `version.txt` **只读挂**进 `field-api`（`./version.txt:/config/stack-version.txt:ro`），
-  并设 `WIST_FIELD_STACK_VERSION_FILE`；BFF 的 `/api/health.stack_version` 运行期读文件回显
-  —— 页面左下角能直接看到「`wist-field-web` / `wist-field-api` / `wist-field-stack` 各跑哪一版」。
-  **版本号不在 `.env` / `vars.yml` / `.env.example` / 镜像里再复制一份**（与 center-stack
-  同一条理由：`version.txt` 是唯一真值，两份一定会漂；且 `.env.example` 被
-  `env-example-drift.test.sh` 钉着与 `merged_vars.yml` 逐键一致）。
-  注意：需要配套的 `wist-field-api`（≥ 0.7.5，`/api/health` 才带这两个字段）。
+**`FIELD_API_IMAGE_TAG` → `v0.7.5-alpha`：修「中间件读数拿不到」。**
+
+现场症状：中间件页显示「后端 `/api/metrics/middleware` 没响应」，而存储与指标统计都正常。
+直接在宿主上验就是**版本对不上**：
+
+```
+/api/health                401   ← 路由存在（需鉴权）
+/api/metrics               401   ← 路由存在
+/api/metrics/middleware    404   ← 路由不存在
+```
+
+`GET /api/metrics/middleware` 是 `wist-field-api` **0.7.5** 新增的（页面 0.2.11 已经在用），
+而本栈还钉在 `0.7.4`：页面、镜像、栈三者版本错配。不是采集或存储坏了。
+
+> 注意页面那句提示（“先看下面的指标统计里存储是否正常”）在 404 下是误导的 —— 它把
+> 「契约不在」说成了「存储可能坏了」。后续会让页面按状态码区分（404 = 版本不匹配）。
+
+另外把上一个未发布提交一并带上：**全栈版本传给 BFF**（与 center-stack / gateway-stack 同口径）。
+compose 把栈根 `version.txt` **只读挂**进 `field-api`（`./version.txt:/config/stack-version.txt:ro`），
+并设 `WIST_FIELD_STACK_VERSION_FILE`；BFF 的 `/api/health.stack_version` 运行期读文件回显 ——
+页面左下角能直接看到「`wist-field-web` / `wist-field-api` / `wist-field-stack` 各跑哪一版」。
+（这也正是本版依赖 field-api ≥ 0.7.5 的原因之一。）
 
 ## 0.6.0-alpha · 2026-11-13
 
