@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 0.6.3-alpha · 2026-11-15
+
+**`FIELD_WEB_IMAGE_TAG` → `v0.2.13-alpha`：左下角显示三层版本。**
+
+现场排查最费时间的一步是「页面 / BFF / 站点栈到底跑的是哪一组」——以前只能进容器
+`docker inspect`。现在页脚三行直接给出：页面版本（构建时注入）、`wist-field-api`（BFF 自报
+`/api/health.version`）、站点栈（`/api/health.stack_version`）。拿不到就显示「—」。
+
+只换镜像，不改配置项；`WIST_FIELD_STACK_VERSION` 还是由编排注入（值取自站点
+`version.txt`，与发布包版本号不是一回事）。
+
 ## 0.6.2-alpha · 2026-11-15
 
 **四个组件跟版：「数据有没有进来、进来多少」这条链。**

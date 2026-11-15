@@ -4,7 +4,7 @@ system:
 - name: FIELD_API_IMAGE_TAG
   value: v0.7.6-alpha
 - name: FIELD_WEB_IMAGE_TAG
-  value: v0.2.12-alpha
+  value: v0.2.13-alpha
 - name: EVIDENCE_IMAGE_TAG
   value: v0.3.1-alpha
 - name: ATLAS_REGISTRY
