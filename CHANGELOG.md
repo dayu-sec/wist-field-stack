@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 0.6.4-alpha · 2026-11-15
+
+**四个组件跟版：概览页「数据进来没有」改成实时面板。**
+
+- `EVIDENCE_IMAGE_TAG` → `v0.3.2-alpha`、`ATLAS_IMAGE_TAG` → `v0.7.2-alpha`：两个服务各加一个
+  按租户的**进程内计数器**（累计写入条数 + 最后一次写入时间，O(1)），`window_seconds=0`
+  只看累计、不做 count —— 看板 3 秒轮询不再扫表。
+- `FIELD_API_IMAGE_TAG` → `v0.7.7-alpha`：`/api/ingest/stats` 每条通道多一个 `total`（累计量），
+  Atlas 那一路单位改成「条」；同时移除折线用的两个历史接口。
+- `FIELD_WEB_IMAGE_TAG` → `v0.2.14-alpha`：概览页一路一张卡（累计条数 + 最后一次），
+  条 = 新鲜度、标签 = 稳定 / 滞后 / 无数据，3 秒刷新；主机卡的 sparkline 删掉。
+
+升级只看镜像 tag，不涉及配置项与环境变量；`window_seconds=0` 对旧服务也安全
+（旧版忽略该参数，页面显示「—」+ 原因，不会报错）。
+
 ## 0.6.3-alpha · 2026-11-15
 
 **`FIELD_WEB_IMAGE_TAG` → `v0.2.13-alpha`：左下角显示三层版本。**
