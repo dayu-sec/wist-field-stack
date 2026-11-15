@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## 0.6.2-alpha · 2026-11-15
+
+**四个组件跟版：「数据有没有进来、进来多少」这条链。**
+
+| 变量 | 从 | 到 | 为了什么 |
+|---|---|---|---|
+| `FIELD_API_IMAGE_TAG` | `v0.7.5-alpha` | `v0.7.6-alpha` | 新增 `GET /api/ingest/stats`（三通道接收量汇总） |
+| `EVIDENCE_IMAGE_TAG` | `v0.3.0-alpha` | `v0.3.1-alpha` | 新增 `GET /internal/evidence/stats`（窗口内落库条数） |
+| `ATLAS_IMAGE_TAG` | `v0.7.0-alpha` | `v0.7.1-alpha` | 新增 `GET /internal/atlas/stats`（窗口内投递批次） |
+| `FIELD_WEB_IMAGE_TAG` | `v0.2.11-alpha` | `v0.2.12-alpha` | 概览页新增「数据进来没有」 |
+
+解决的是现场那个容易误判的场景：四个域的**探活全绿**，但上游一直没发数据，页面上看不出区别。
+升完这组之后，概览页会直接给出「三条通道 ▸ 窗口内收到多少 ▸ 最后一次」；
+证据 / Atlas 是事件型通道，没数据是常态，所以绿点只给「刚刚真的收到过」。
+
+只换镜像，不改任何配置项；四个端点都是新增，老页面/老调用方不受影响。
+
 ## 0.6.1-alpha · 2026-11-15
 
 **`FIELD_API_IMAGE_TAG` → `v0.7.5-alpha`：修「中间件读数拿不到」。**
