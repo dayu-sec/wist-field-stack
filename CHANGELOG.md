@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## 0.6.8-alpha · 2026-11-25
+
+**`FIELD_WEB_IMAGE_TAG` → `v0.2.16-alpha`：网络资产页区分「云采集」与「端侧发现」。**
+
+同一页里混着两类数据：云账号采集的 VPC / 子网，和端侧 agent 上报的地址段（`/32`、docker 网桥、
+观测网段）。以前它们被一起计入 VPC / 子网，数值对不上云上真实资源。
+
+- 判据只认 `cloudAccount` / `externalRef`：云侧的行一定有云上 ID（`VpcId` / `SubnetId`），
+  端侧发现两者都为空。`cloudInstanceId` 端侧也会带（agentd 从元数据服务读的），**不能**当判据。
+- VPC / 子网统计只数云侧；atlas 自动创建的 `default` 兜底域与观测网段折叠到「端侧发现」，
+  不再冒充 VPC / 子网。
+- 顶部新增「数据来源」条：云侧最近观测 / 端侧最近上报；云资产还没进来时直接写
+  「wist-harvest 未写入 atlas」，不用再去猜是页面坏了还是链路没通。
+
+只换页面镜像，不改配置项与环境变量。数据面与 atlas 的前提是云资产已入库
+（`ingest_job.source_kind = externalsync`），否则页面正确显示「未写入」。
+
 ## 0.6.7-alpha · 2026-11-25
 
 **`ATLAS_IMAGE_TAG` → `v0.7.3-alpha`：多网卡主机的快照不再被 503 拒绝；job 失败不再伪装成 accepted。**
