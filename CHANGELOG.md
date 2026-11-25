@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 0.6.7-alpha · 2026-11-25
+
+**`ATLAS_IMAGE_TAG` → `v0.7.3-alpha`：多网卡主机的快照不再被 503 拒绝；job 失败不再伪装成 accepted。**
+
+现场表现：Atlas 卡片一直「无数据 / 未接入」，`ingest_job` 却一直在长；网关每 5 分钟一帧、
+每帧重试全部 503。
+
+- `host_net_assoc` 的收口从「每写一条关联就关掉该主机其它所有敞开关联」改成
+  「一帧结束按本帧上报集合收口」：多网卡主机（eth0 + 多张 docker 网桥）不再写出
+  `valid_to == valid_from` 的零长度区间，整帧不再被 `host_net_assoc_check` 拒绝；
+- `ingest_job` 改为 `pending → accepted / failed`：物化失败落 `failed` + 错误原因；
+  `/internal/atlas/stats` 只数 `accepted`，失败帧留证据但不冒充「数据进来了」。
+
+只换镜像 tag，不改配置项与环境变量；升级后下一帧（≤ 5 分钟）即可恢复。
+
 ## 0.6.6-alpha · 2026-11-15
 
 **`EVIDENCE_IMAGE_TAG` → `v0.3.3-alpha`：证据页「没有匹配的证据」修复。**
