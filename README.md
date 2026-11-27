@@ -33,8 +33,9 @@
 ```bash
 cp .env.example .env
 
-# 1) 登记客户：建数据目录（<数据根>/<cust>/{pg,objects,pg-atlas}）+ 写该客户的
-#    DB 密钥（栈根 `.wist/sec-value.yml` → `SEC_EVIDENCE_DB_URL_<CUST>`，0640）。
+# 1) 登记客户：建数据目录（PG 在 <数据根>/<cust>/{pg,pg-atlas}；证据正文在
+#    <数据根>/objects/<cust>）+ 写该客户的 DB 密钥
+#    （栈根 `.wist/sec-value.yml` → `SEC_EVIDENCE_DB_URL_<CUST>`，0640）。
 #    客户 id 必须和数据面写入的 cust_id（= 网关绑定的 tenant_id）完全一致。
 bash sys/scripts/add-customer.sh <cust_id>
 
@@ -63,6 +64,11 @@ curl -k -H 'Authorization: Bearer wcr_…' https://127.0.0.1:8088/api/health
 
 ```bash
 gops sys update      # sys/setting/vars.yml -> sys/merged_vars.yml
+# 首次还没有客户时，先只生成 .env（跳过 localize 流程）；否则 localize 会因
+# 「客户清单为空」直接失败 —— 这是有意的，evidence 0.3.0 起没有默认后端。
+gops sys localize --no-flow
+bash sys/scripts/add-customer.sh <cust_id>   # 至少登记一个客户
+
 gops sys localize    # 生成栈根 .env，并跑 sys/workflows 的 localize 流程：
                      #   configs/ 渲染 + init-stack.sh（目录 / .wist / web TLS / cred 自检）
 gops run start
@@ -115,6 +121,13 @@ TLS 在 `web` 容器里终结（80 只给健康检查、不发布到宿主）。
   不认识 / 过期 / 撤销 → 401 `field_credential_invalid`，角色不够 → 403 `field_role_required`；
 - 摘要由 `wist-cred` 通过 **mTLS** 推到 `field-api` 的 3103（宿主 `${CREDENTIALS_BIND_IP}:${CREDENTIALS_HOST_PORT}`），
   本地只落 sha256，不进 PG、重启不丢。
+
+### 脚本调用（Python）
+
+不用页面、直接调 BFF 的最小示例在 [`examples/field-api/`](examples/field-api/)：
+登录 / 会话 / 健康 / 证据读写 / 指标 / atlas 代理，全部只用标准库。
+入口地址填 `https://<WEB_DOMAIN>:<WEB_HOST_PORT>`；本地自签入口加
+`WIST_FIELD_INSECURE=1`。
 
 ### 接入 wist-cred（一次性，P1 自注册）
 
@@ -275,21 +288,25 @@ curl -k -H 'x-field-operator: zhangsan' https://127.0.0.1:8088/api/health
 
 | `objects.kind` | 用在哪 | 位置 | 预签名 |
 |---|---|---|---|
-| `file`（本栈默认） | 测试 / 现场验证 | 宿主 `./data/evidence-objects/`（容器内 `/var/lib/wist-evidence/objects`） | ❌ 回 501 |
+| `file`（本栈默认） | 测试 / 现场验证 | 宿主 `<FIELD_DATA_ROOT>/objects/<cust>/objects/`（容器内 `/data-customers/<cust>/objects`） | ❌ 回 501 |
 | `s3` | 生产 | 腾讯 COS / MinIO | ✅ 60s 单对象 |
 
-本地模式的文件就是对象键：`<租户>/<kind>/<年>/<月>/<artifact_id>.json.zst`，
+本地模式的文件就是对象键：`<cust>/<kind>/<年>/<月>/<artifact_id>.json.zst`，
 旁边 `.meta.json` 是写入时的自描述元数据。正文是 zstd 压缩的，直接看：
 
 ```bash
-find data/evidence-objects -name '*.json.zst' | head
-zstd -dc data/evidence-objects/t-001/investigation_report/2026/11/*.json.zst | jq .
+find customers/objects/DEV-X4/objects -name '*.json.zst' | head
+zstd -dc customers/objects/DEV-X4/objects/DEV-X4/investigation_report/2026/11/*.json.zst | jq .
 ```
 
-注意两点：
+注意三点：
 
-- `data/evidence-objects` 由 `sys/scripts/init-stack.sh` 建好并给到 0777（容器内是 uid 10001）；
-  **不跑 init 脚本**时 compose 会自己建一个 `root:root` 的目录，证据服务写不进去。
+- 对象目录由 `add-customer.sh` 创建，并**与 PG 分开**：PG 在 `<数据根>/<cust>/pg*`，
+  正文在 `<数据根>/objects/<cust>/objects` —— 这样 evidence 的挂载里不会混进 PG 文件。
+- **旧布局**（0.5.0 前）是 `<FIELD_DATA_ROOT>/<cust>/objects/`。升级后索引还在、
+  打开正文会 502：用 `sys/scripts/migrate-legacy-objects.sh --apply` 迁到新位置
+  （幂等、只补不覆盖、不删旧目录）。`gops sys localize` 会检测并在 stderr 提醒；
+  Linux 上迁移后再跑一次 `gops sys localize`（或 `gops sys perms --apply`）对齐属组/权限。
 - 本地文件模式**不签发预签名 URL**（`:presign` 回 `501 evidence_presign_unsupported`），
   页面会自动改走 BFF 代理读（`GET /api/evidence/{id}/content`），所以「打开正文」照旧可用；
   要签名 URL（例如让外部消费者直连桶）才需要切 `s3`。
@@ -325,7 +342,7 @@ retention_hours = 24     # 能活多久；实际每小时扫一次
 |---|---|---|
 | 证据索引 | `<FIELD_DATA_ROOT>/<cust>/pg` | `cells.json` 的 `host_dir`（容器 `pg-<cust>`） |
 | 拓扑索引 | `<FIELD_DATA_ROOT>/<cust>/pg-atlas` | `cells.json` 的 `atlas_host_dir` |
-| 证据正文 | `<FIELD_DATA_ROOT>/<cust>/objects` | `cells.json` 的 `objects_dir` |
+| 证据正文 | `<FIELD_DATA_ROOT>/objects/<cust>/objects` | `cells.json` 的 `objects_dir`（容器内 `/data-customers/<cust>/objects`） |
 | 运行指标 | `${VM_DATA}`（命名卷 `metrics-data`） | 不跟客户走（指标靠 `tenant_id` label 隔离） |
 | 凭据摘要表 | `${FIELD_API_STORE_DIR}` | 不跟客户走 |
 

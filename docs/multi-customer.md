@@ -152,8 +152,10 @@ objects = { kind = "file", dir = "/srv/wist-field/1000.../objects" }
 | 单客户站点 | 不写 `EVIDENCE_CELLS` → 配置里没有 cells 段 → 行为与 0.3.x 完全一致 |
 
 > 注意：0.3.1 引入的 `EVIDENCE_PG_DATA` / `EVIDENCE_OBJECTS_DIR` 等变量已随默认库一起删除
-> （0.5.0）。客户数据落在 `FIELD_DATA_ROOT/<cust>/{pg,objects,pg-atlas}`，由
-> `cells.json` 记绝对路径；只剩 `VM_DATA` / `FIELD_API_STORE_DIR` 两个不跟客户走的落点。
+> （0.5.0）。客户数据落在 `FIELD_DATA_ROOT/<cust>/{pg,pg-atlas}` 与
+> `FIELD_DATA_ROOT/objects/<cust>/objects`，由 `cells.json` 记绝对路径；只剩
+> `VM_DATA` / `FIELD_API_STORE_DIR` 两个不跟客户走的落点。0.5.0 之前的老对象在
+> `<cust>/objects`，用 `sys/scripts/migrate-legacy-objects.sh --apply` 迁移（幂等）。
 
 ### 5.6 指标（VM）：按 `tenant_id` 过滤
 

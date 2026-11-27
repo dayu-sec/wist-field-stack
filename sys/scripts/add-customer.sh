@@ -201,8 +201,22 @@ PY
   fi
 
   echo
-  note "客户 ${CUST} 已注销。下一步："
-  note "  gops sys localize && gops run start   # 让 evidence / atlas / BFF 按新清单重载"
+  REMAINING="$(python3 - "${CELLS_JSON}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(len(json.load(handle)))
+PY
+)"
+  if [ "${REMAINING}" = "0" ]; then
+    note "客户 ${CUST} 已注销，但客户清单现在是空的。"
+    note "evidence / atlas 至少需要一个客户 cell：在重新登记前，gops sys localize 会直接失败。"
+    note "  恢复：bash sys/scripts/add-customer.sh <cust_id>   # 已有数据时加 --atlas-tenant-id <原 UUID>"
+  else
+    note "客户 ${CUST} 已注销。下一步："
+    note "  gops sys localize && gops run start   # 让 evidence / atlas / BFF 按新清单重载"
+  fi
   exit 0
 fi
 

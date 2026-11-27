@@ -91,10 +91,66 @@ text_like() {
 
 EVIDENCE_READ_PORT="$(port_like EVIDENCE_READ_PORT "$(need EVIDENCE_READ_PORT)")"
 
+# ── 客户清单：唯一真相，且必须至少有一个客户 ─────────────────────────────
+# evidence 0.3.0 / atlas 0.5.0 起去掉了默认后端：没有 [[storage.cell]] 就**拒绝启动**。
+# 这里提前失败，别等到 `gops run start` 才看到 “evidence is unhealthy”。
+CELLS_JSON="${STACK_ROOT}/configs/cells/cells.json"
+[ -f "${CELLS_JSON}" ] || die "缺少客户清单 ${CELLS_JSON}：evidence / atlas 至少需要一个客户 cell。先运行 bash sys/scripts/add-customer.sh <cust_id> 登记客户，再重跑 localize；已有拓扑库时加 --atlas-tenant-id <原 UUID>（从 atlas 库 select tenant_id 取）。"
+
+CELL_COUNT="$(python3 - "${CELLS_JSON}" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as handle:
+        cells = json.load(handle)
+except (OSError, json.JSONDecodeError) as err:
+    print("读取客户清单失败：%s: %s" % (path, err), file=sys.stderr)
+    raise SystemExit(2)
+if not isinstance(cells, list):
+    print("客户清单顶层必须是数组：%s" % path, file=sys.stderr)
+    raise SystemExit(2)
+missing = [str(index) for index, cell in enumerate(cells) if not cell.get("cust_id")]
+if missing:
+    print("客户清单第 %s 项缺 cust_id：%s" % (",".join(missing), path), file=sys.stderr)
+    raise SystemExit(2)
+print(len(cells))
+PY
+)" || die "客户清单不可用：${CELLS_JSON}"
+[ "${CELL_COUNT}" -gt 0 ] || die "客户清单为空（${CELLS_JSON}）：evidence / atlas 至少需要一个客户 cell。先运行 bash sys/scripts/add-customer.sh <cust_id> 登记客户，再重跑 localize；已有拓扑库时加 --atlas-tenant-id <原 UUID>（从 atlas 库 select tenant_id 取）。"
+
+# 旧对象布局（0.5.0 之前）：<数据根>/<cust>/objects → 现在是 <数据根>/objects/<cust>/objects。
+# 旧文件不会自动变位置；不迁移的话索引能查、正文读会 502。这里只提醒，不搬数据。
+# 迁移成功后脚本会在旧目录写 `.migrated-to-new-layout`，下一轮不再重复提醒。
+python3 - "${CELLS_JSON}" <<'PY'
+import json
+import os
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    cells = json.load(handle)
+for cell in cells:
+    cust = cell.get("cust_id")
+    host = cell.get("host_dir")
+    if not cust or not host:
+        continue
+    legacy = os.path.join(host, "objects")
+    marker = os.path.join(legacy, ".migrated-to-new-layout")
+    if not os.path.isdir(legacy) or os.path.exists(marker):
+        continue
+    count = sum(len(files) for _, _, files in os.walk(legacy))
+    if count == 0:
+        continue
+    target = os.path.join(os.path.dirname(host), "objects", cust, "objects")
+    print("", file=sys.stderr)
+    print("⚠ 发现旧对象布局：%s（%d 个文件）" % (legacy, count), file=sys.stderr)
+    print("  当前 evidence 从 %s 读正文；未迁移的旧证据会 502。" % target, file=sys.stderr)
+    print("  迁移（幂等，只补不覆盖）：bash sys/scripts/migrate-legacy-objects.sh --apply", file=sys.stderr)
+PY
+
 # 多客户：BFF 的可选客户集合来自客户清单（与 evidence 的 cells 同源，避免两份名单分叉）。
-EVIDENCE_ALLOWED_TENANTS="[]"
-if [ -f "${STACK_ROOT}/configs/cells/cells.json" ]; then
-  EVIDENCE_ALLOWED_TENANTS="$(python3 - "${STACK_ROOT}/configs/cells/cells.json" <<'PY'
+EVIDENCE_ALLOWED_TENANTS="$(python3 - "${CELLS_JSON}" <<'PY'
 import json
 import sys
 
@@ -103,7 +159,6 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 print(json.dumps([cell["cust_id"] for cell in cells if cell.get("cust_id")], ensure_ascii=False))
 PY
 )"
-fi
 # 模板里 `allowed_tenants = [{{{...}}}]` 要的是逗号分隔的带引号字面量；空清单 → `[]`。
 EVIDENCE_ALLOWED_LITERAL=""
 if [ "${EVIDENCE_ALLOWED_TENANTS}" != "[]" ]; then
@@ -207,22 +262,16 @@ write_rendered "${FIELD_API_DIR}/cred.value.json" cat <<EOF
 EOF
 
 # ③ 证据服务：读监听端口（与 BFF / compose 健康检查同一个来源）
-# ③ 证据服务：读监听端口（与 BFF / compose 健康检查同一个来源）
 #
 # 多客户：把 `configs/cells/cells.json`（客户清单，由 `add-customer.sh` 维护）
 # 转成渲染值 `evidence_cells`，模板里用 `{{#each}}` 展开成 `[[storage.cell]]`。
-# 清单不存在 / 为空 = 单客户部署（配置里没有 cells 段），行为与 0.3.x 一致。
-CELLS_JSON="${STACK_ROOT}/configs/cells/cells.json"
-EVIDENCE_CELLS_JSON="[]"
-if [ -f "${CELLS_JSON}" ]; then
-  EVIDENCE_CELLS_JSON="$(python3 - "${CELLS_JSON}" <<'PY'
+# 清单缺失 / 为空已在脚本开头直接失败（evidence 0.3.0 起没有默认后端）。
+EVIDENCE_CELLS_JSON="$(python3 - "${CELLS_JSON}" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     cells = json.load(handle)
-if not isinstance(cells, list):
-    cells = []
 # 只保留渲染需要的三个字段（清单里还有给脚本自己用的 host_dir / pg_port）
 keep = [
     {
@@ -235,7 +284,6 @@ keep = [
 print(json.dumps(keep, ensure_ascii=False))
 PY
 )"
-fi
 
 write_rendered "${EVIDENCE_DIR}/wist-evidence.value.json" cat <<EOF
 {

@@ -63,6 +63,18 @@ expect() { # expect <标签> <期望> <实际>
   fi
 }
 
+echo "⓪ 没有客户清单：localize 必须直接失败"
+if sandbox_run init-field-config.sh >"${TMP}/empty.log" 2>&1; then
+  test_no "空客户清单时 init-field-config.sh 应该失败"
+else
+  test_ok "空客户清单时 init-field-config.sh 失败"
+fi
+if grep -q '客户清单' "${TMP}/empty.log"; then
+  test_ok "失败信息指出客户清单"
+else
+  test_no "失败信息没有指出客户清单：$(tail -2 "${TMP}/empty.log")"
+fi
+
 echo "① 登记一个客户"
 sandbox_run add-customer.sh DEV-1 >/dev/null || test_no "add-customer.sh DEV-1 失败"
 expect "清单里只有 1 个客户" "1" "$(cell_count)"

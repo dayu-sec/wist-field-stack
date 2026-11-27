@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## 0.6.9-alpha · 2026-11-27
+
+**客户清单缺失不再静默生成空栈；旧证据对象布局可检测/迁移；新增 BFF 的 Python 调用示例。**
+
+现场事故：`configs/cells/cells.json` 丢失后，`gops sys localize` 按空清单重渲，
+`wist-evidence` 因没有 `[[storage.cell]]` 启动失败，`gops run start` 只报
+「evidence is unhealthy」。同时旧布局（`<数据根>/<cust>/objects`）的历史正文
+在新挂载下读不到（列表有、打开正文 502）。
+
+- **localize 前置校验**：`cells.json` 缺失 / 顶层不是数组 / 缺 `cust_id` / 为空时，
+  `init-field-config.sh` 直接失败，并提示 `add-customer.sh` 与
+  `--atlas-tenant-id <原 UUID>`（已有拓扑库时不要生成新租户）。空清单不再
+  生成一个起不来的 evidence / atlas 配置。
+- **首次引导**：还没有客户时先 `gops sys localize --no-flow` 生成 `.env`，
+  再跑 `add-customer.sh`；README 的 gops 快速开始已按这个顺序写。
+  `add-customer.sh --remove` 移除最后一个客户时会提示清单已空。
+- **旧对象布局迁移**：新增 `sys/scripts/migrate-legacy-objects.sh`
+  （默认 dry-run；`--apply` 执行；`--force` 重扫；只补不覆盖、不删旧目录、
+  成功后写 `.migrated-to-new-layout`）。`init-field-config.sh` 会检测旧布局并在
+  stderr 提醒，不再让旧证据静默 502。
+- **路径口径修正**：证据正文宿主位置统一为
+  `<FIELD_DATA_ROOT>/objects/<cust>/objects`（容器内 `/data-customers/<cust>/objects`），
+  同步 README / `.env.example` / `docs/multi-customer.md`。
+- **Python 示例**：新增 `examples/field-api/`，覆盖令牌体检、会话与客户选择、
+  健康探活、证据列表 / 详情 / 正文 / 预签名、运行指标、接入信息、atlas 代理、
+  证据写入。本地栈零参数（自动信任本栈 web CA、自动领 5 分钟 dev 令牌、
+  单客户自动选）；跨环境显式给 `WIST_FIELD_URL` / `WIST_FIELD_TOKEN`。
+  `--insecure` 仅在找不到 `identity/web/public/web-ca.crt.pem` 时需要。
+- **回归**：`add-customer.test.sh` 新增「无客户清单必须失败」；新增
+  `legacy-objects.test.sh`（检测 / dry-run / apply / 幂等 / 不覆盖 / 标记 /
+  `--force` / 清单缺失）。
+
+不改组件镜像 tag，不改环境变量键；升级后 `gops sys localize` 会自动重渲配置。
+
 ## 0.6.8-alpha · 2026-11-25
 
 **`FIELD_WEB_IMAGE_TAG` → `v0.2.16-alpha`：网络资产页区分「云采集」与「端侧发现」。**
