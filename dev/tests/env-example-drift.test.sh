@@ -54,6 +54,30 @@ else
   diff "${TMP}/merged.txt" "${TMP}/example.txt" | sed 's/^/       /' >&2
 fi
 
+# 源头：`sys/setting/vars.yml`（`  - name: KEY` + `    value: VALUE`）。
+# 为什么钉：前两项只比“生成物之间”，源头改了但忘了 `gops sys resolve` 时它们
+# **仍然一致**（一起落后）—— 2026-11-28 的 `EVIDENCE_IMAGE_TAG` 就是这么停在 v0.3.3 的。
+awk '
+  /^[[:space:]]*- name: / { key = $3; next }
+  /^[[:space:]]+value:/ {
+    line = $0
+    sub(/^[[:space:]]+value:[[:space:]]*/, "", line)
+    gsub(/^["'"'"']/, "", line)
+    gsub(/["'"'"']$/, "", line)
+    if (key != "") print key "=" line
+    key = ""
+  }
+' "${STACK_REAL}/sys/setting/vars.yml" | sort >"${TMP}/vars.txt"
+
+echo "③ 源头 vars.yml 必须已并入 merged_vars.yml（改了源就重跑 gops sys resolve）"
+missing="$(comm -23 "${TMP}/vars.txt" "${TMP}/merged.txt")"
+if [[ -z "${missing}" ]]; then
+  ok "vars.yml 的 $(wc -l <"${TMP}/vars.txt" | tr -d ' ') 个系统变量都已在 merged_vars.yml"
+else
+  no "以下变量在 merged_vars.yml 里缺失或值不同（< vars.yml）："
+  printf '%s\n' "${missing}" | sed 's/^/       /' >&2
+fi
+
 echo
 printf '通过 %d，失败 %d\n' "${pass}" "${fail}"
 [[ ${fail} -eq 0 ]]

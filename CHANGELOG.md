@@ -1,6 +1,27 @@
 # CHANGELOG
 
 
+## [0.6.11-alpha] - 2026-11-28
+
+**主机流量可查了：`EVIDENCE_IMAGE_TAG` → v0.5.0-alpha、`FIELD_API_IMAGE_TAG` → v0.8.0-alpha、
+`FIELD_WEB_IMAGE_TAG` → v0.3.0-alpha。三个镜像一起抬。**
+
+- **wist-evidence 0.5.0**：新增只读查询 `GET /internal/flows`、`GET /internal/flows/peers`——
+  租户闸 + scope `evidence:read` / `evidence:admin`，时间窗缺省 1 小时、最长 31 天；
+  0004 迁移补 `(tenant_id, window_start)` 索引（不带 `host_id` 的查询不再扫分区到尾）。
+- **wist-field-api 0.8.0**：新增 `/api/flows`、`/api/flows/peers`（客户闸与 `/api/evidence` 同一套），
+  `/api/evidence/openapi.json` 一并补上，「接口可用性 → 证据读取 API」能看到这两个接口。
+- **wist-field-web 0.3.0**：新导航「主机流量」——按主机 / 对端 / 方向 / 协议 / 时间窗查窗口记录，
+  「谁连过这个地址」按对端 IP 反查；行里带网卡与 ICMP type/code，
+  页面写明「只采一端公网，持续零记录 ≠ 采集故障」。
+- **修一处源头漂移**：`EVIDENCE_IMAGE_TAG` 在 `sys/setting/vars.yml` 早已是 v0.4.0，
+  但 `sys/merged_vars.yml` / `.env.example` 还停在 v0.3.3——0.6.10 只改了源头、忘了重跑
+  `gops sys resolve`，而 drift 测试只比“生成物之间”，两边一起落后就查不出来。
+  本次同步两者，并给 `dev/tests/env-example-drift.test.sh` 加了③：
+  **`vars.yml` 必须已并入 `merged_vars.yml`**（反向验证过：把源头改回去会红）。
+- 升级：`gops sys localize` → `gops run start`（重建 evidence / field-api / field-web）。
+  站点若要拿流量数据，还要在 infra 仓给 `agent-flows` 分组加 field sink（种子不带）。
+
 ## [0.6.10-alpha] - 2026-11-28
 
 **`EVIDENCE_IMAGE_TAG` → `v0.4.0-alpha`（主机流记录的落点）。只改镜像 tag。**
