@@ -1,5 +1,18 @@
 # CHANGELOG
 
+
+## [0.6.10-alpha] - 2026-11-28
+
+**`EVIDENCE_IMAGE_TAG` → `v0.4.0-alpha`（主机流记录的落点）。只改镜像 tag。**
+
+- evidence 0.4.0 新增 `flow_window`（按天分区）与写端点 `POST /internal/flows`：
+  主机流记录按 `{cust_id, body}` 数组投递，11 段业务键幂等 upsert。
+  旧接口（`/internal/evidence` 等）行为不变，本栈无需改配置。
+- **数据面到 field 的投递归站点 infra 仓**：网关栈种子不带 field sink（门禁
+  `sinks-no-field-delivery.test.sh`）；站点在 `agent-flows` 分组加
+  `connect = "wist-field-evidence"` + 覆盖 `endpoint` 到 `/internal/flows` 即可。
+- 升级：`gops sys localize` → `gops run start`（只重建 evidence 容器）。
+
 ## 0.6.9-alpha · 2026-11-27
 
 **客户清单缺失不再静默生成空栈；旧证据对象布局可检测/迁移；新增 BFF 的 Python 调用示例。**

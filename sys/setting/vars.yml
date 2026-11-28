@@ -19,7 +19,7 @@ system:
   - name: FIELD_WEB_IMAGE_TAG
     value: v0.2.16-alpha
   - name: EVIDENCE_IMAGE_TAG
-    value: v0.3.3-alpha
+    value: v0.4.0-alpha
 
   - name: ATLAS_REGISTRY
     value: ghcr.io/dayu-sec
